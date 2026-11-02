@@ -9,7 +9,6 @@ export interface CardSummary {
   sub: string
   level: string
   cleared: number
-  open: number
   gaps: number
   awaiting: number
   total: number
@@ -38,7 +37,6 @@ export function SkillCardsGrid({ items, hrefFor }: { items: CardSummary[]; hrefF
             <span className="mini-card-stats">
               <span data-status="cleared" title="Cleared">{c.cleared} cleared</span>
               {c.gaps > 0 && <span data-status="gap" title="Gaps">{c.gaps} gap{c.gaps === 1 ? '' : 's'}</span>}
-              {c.open > 0 && <span data-status="open">{c.open} in progress</span>}
               {c.awaiting > 0 && <span data-status="incomplete">{c.awaiting} awaiting</span>}
             </span>
             <span className="step-cta">

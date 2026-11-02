@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ArrowRight, AtSign, ChevronRight, Lock } from 'lucide-react'
-import { api, type DemoUser, type User } from '../api'
+import { api, type DemoUser, type RealUser, type User } from '../api'
 
 export function Login({ onSignIn }: { onSignIn: (u: User) => void }) {
   const [email, setEmail] = useState('')
@@ -9,10 +9,36 @@ export function Login({ onSignIn }: { onSignIn: (u: User) => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [demo, setDemo] = useState<DemoUser[]>([])
+  const [finder, setFinder] = useState('')
+  const [found, setFound] = useState<RealUser[]>([])
 
   useEffect(() => {
     api.demoUsers().then(setDemo).catch(() => setDemo([]))
   }, [])
+
+  // Imported real people: search by name or employee id, then pick one to sign in as.
+  useEffect(() => {
+    const q = finder.trim()
+    if (!q) {
+      setFound([])
+      return
+    }
+    const t = setTimeout(() => {
+      api.realUsers(q).then(setFound).catch(() => setFound([]))
+    }, 200)
+    return () => clearTimeout(t)
+  }, [finder])
+
+  const signInAs = async (id: string) => {
+    setBusy(true)
+    setError('')
+    try {
+      onSignIn(await api.realLogin(id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not sign in.')
+      setBusy(false)
+    }
+  }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -100,6 +126,30 @@ export function Login({ onSignIn }: { onSignIn: (u: User) => void }) {
               ))}
             </div>
           </>
+        )}
+
+        <div className="login-divider">
+          <span>Imported data</span>
+        </div>
+        <p className="muted login-sub">Real people from the imported export. Search by name or employee ID.</p>
+        <input className="input" type="search" placeholder="Search name or employee ID" aria-label="Search imported people" value={finder} onChange={(e) => setFinder(e.target.value)} />
+        {finder.trim() && found.length === 0 && <p className="muted login-sub">No imported person matches.</p>}
+        {found.length > 0 && (
+          <div className="demo-grid">
+            {found.map((u) => (
+              <button key={u.id} type="button" className="demo-card" disabled={busy} onClick={() => void signInAs(u.id)}>
+                <span className="demo-avatar">{u.initials}</span>
+                <span className="demo-text">
+                  <strong>{u.name}</strong>
+                  <small>
+                    {u.roleLabel}
+                    {u.detail ? ` · ${u.detail}` : ''}
+                  </small>
+                </span>
+                <ChevronRight size={14} aria-hidden />
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </div>

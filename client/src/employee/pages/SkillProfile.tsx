@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Check, Minus, Star, X } from 'lucide-react'
 import { usePublishedMe } from '../MeContext'
-import { SCORE_NAME, SELF_LABEL, clusterStatus, fmtDate, pctOf, gapSources } from '../logic'
+import { SCORE_NAME, SELF_LABEL, clusterStatus, fmtDate, gapSources, outOf, testText } from '../logic'
 import { NotPublished, PageHead, ScoreChip, StatusBadge } from '../shared'
 import { Badge, Card } from '../../components/ui'
 import type { Cluster, PublishedMe } from '../types'
@@ -116,13 +116,13 @@ function SkillCardBlock({ c, m }: { c: Cluster; m: PublishedMe }) {
           <small className="muted">Reflection only. Not used in results.</small>
         </div>
         <div className="score-col">
-          <span className="score-col-label">Manager validation</span>
+          <span className="score-col-label">Manager evaluation</span>
           <span className="score-col-value">
             <ScoreChip score={c.manager.status === 'pending' ? null : c.manager.calibrated} />
             {c.manager.status === 'pending' ? 'Pending' : SCORE_NAME[c.manager.calibrated]}
           </span>
           <small className="muted">
-            {c.manager.applicable ? `${c.manager.yes} of ${c.manager.applicable} tasks (${pctOf(c.manager.pct)})` : 'No applicable tasks'}
+            {c.manager.applicable ? `${outOf(c.manager.yes, c.manager.applicable)} tasks` : c.manager.status === 'pending' ? 'No applicable tasks' : `${outOf(c.manager.calibrated, 3)}`}
           </small>
         </div>
         <div className="score-col">
@@ -132,7 +132,7 @@ function SkillCardBlock({ c, m }: { c: Cluster; m: PublishedMe }) {
             {c.test.latest?.score ? SCORE_NAME[c.test.latest.score] : 'Not taken'}
           </span>
           <small className="muted">
-            {c.test.latest ? `${pctOf(c.test.latest.pct)} · ${fmtDate(c.test.latest.submittedAt)}` : c.test.questionCount ? <a href={`#/assessments/tests/${c.id}`}>Take the test</a> : 'No test available yet'}
+            {c.test.latest ? `${testText(c.test.latest)} · ${fmtDate(c.test.latest.submittedAt)}` : c.test.questionCount ? <a href="#/assessments/tests">Take the objective test</a> : 'No test available yet'}
           </small>
         </div>
       </div>

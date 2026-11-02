@@ -4,6 +4,7 @@ import { useDispatch, useStore } from '../../store'
 import { Badge, Button, Card, ConfirmDialog, Field, Segmented, SetupGuide, Toggle } from '../../components/ui'
 import { defaultLikertLabels, scaleOptions } from '../../lib/scale'
 import { nodeTypesFor, uid } from '../../lib/defaults'
+import { changeEvidence, describeEvidence, isOptional, type EvidenceKey } from '../../lib/evidence'
 import { ReviewChoice } from './ReviewChoice'
 import { ORGANIZATIONS, type NodeType, type Organization, type Scale, type StructureKey } from '../../types'
 
@@ -194,18 +195,7 @@ export function Framework() {
               </Field>
             )}
 
-            <Field label="Comments / evidence">
-              <Segmented
-                label="Evidence requirement"
-                value={config.evidence}
-                onChange={(v) => dispatch({ type: 'config', update: (c) => ({ ...c, evidence: v }) })}
-                options={[
-                  { value: 'never', label: 'Optional' },
-                  { value: 'on-negative', label: 'Required on lowest rating' },
-                  { value: 'always', label: 'Always required' },
-                ]}
-              />
-            </Field>
+            <EvidenceChoice />
           </div>
 
           <ScalePreview />
@@ -224,6 +214,51 @@ export function Framework() {
         onClose={() => setConfirmStructure(null)}
       />
     </div>
+  )
+}
+
+/**
+ * When a manager must leave a comment on a validation: Optional, Always required, or on the Lowest and/or Highest rating.
+ * The boxes can't contradict each other: Optional excludes the rest, and Always required locks Lowest and Highest on.
+ */
+function EvidenceChoice() {
+  const { config } = useStore()
+  const dispatch = useDispatch()
+  const rule = config.evidence
+  const [note, setNote] = useState<string | null>(null)
+
+  const items: { key: EvidenceKey; label: string; hint: string; checked: boolean; locked: boolean }[] = [
+    { key: 'optional', label: 'Optional', hint: 'A comment is never required', checked: isOptional(rule), locked: false },
+    { key: 'always', label: 'Always required', hint: 'Every rating needs a comment', checked: rule.always, locked: false },
+    { key: 'lowest', label: 'Lowest rating', hint: 'Needs a comment when the manager band is 1', checked: rule.lowest, locked: rule.always },
+    { key: 'highest', label: 'Highest rating', hint: 'Needs a comment when the manager band is 3', checked: rule.highest, locked: rule.always },
+  ]
+
+  const toggle = (key: EvidenceKey, on: boolean) => {
+    const next = changeEvidence(rule, key, on)
+    setNote(next.note)
+    const same = next.rule.always === rule.always && next.rule.lowest === rule.lowest && next.rule.highest === rule.highest
+    if (!same) dispatch({ type: 'config', update: (c) => ({ ...c, evidence: next.rule }) })
+  }
+
+  return (
+    <fieldset className="check-group">
+      <legend className="field-label">Comments / evidence</legend>
+      <div className="check-grid">
+        {items.map((it) => (
+          <label key={it.key} className="check-row" data-checked={it.checked} data-locked={it.locked}>
+            <input type="checkbox" checked={it.checked} disabled={it.locked} onChange={(e) => toggle(it.key, e.target.checked)} aria-describedby="evidence-note" />
+            <span>
+              <strong>{it.label}</strong>
+              <small>{it.hint}</small>
+            </span>
+          </label>
+        ))}
+      </div>
+      <p id="evidence-note" className="check-note" data-warn={note != null} role="status">
+        {note ?? `Comments are ${describeEvidence(rule)}.`}
+      </p>
+    </fieldset>
   )
 }
 
@@ -273,7 +308,7 @@ function ScalePreview() {
           )}
         </div>
       )}
-      {config.evidence !== 'never' && <div className="evidence">Comment / evidence ({config.evidence === 'always' ? 'required' : 'required on lowest rating'})</div>}
+      {!isOptional(config.evidence) && <div className="evidence">Comment / evidence ({describeEvidence(config.evidence)})</div>}
     </div>
   )
 }

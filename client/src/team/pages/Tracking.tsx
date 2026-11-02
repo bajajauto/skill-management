@@ -1,7 +1,7 @@
 import { Bell, Check } from 'lucide-react'
 import { teamApi } from '../../api'
 import { Badge, Button, Card, useToast } from '../../components/ui'
-import { daysUntil, fmtDate } from '../../employee/logic'
+import { daysUntil, fmtDate, outOf } from '../../employee/logic'
 import { useTeam } from '../TeamContext'
 import { memberStats, timeAgo, type PublishedMember } from '../logic'
 
@@ -22,7 +22,7 @@ export function Tracking({ members }: { members: PublishedMember[] }) {
   // The reminder names whatever the person still owes, since only they can do those parts.
   const owed = (st: ReturnType<typeof memberStats>) => [
     st.selfState !== 'submitted' && 'self assessment',
-    st.s.testsTaken < st.testable && 'objective tests',
+    !st.testDone && 'objective test',
   ].filter(Boolean) as string[]
 
   const remind = async (id: string, name: string) => {
@@ -46,8 +46,8 @@ export function Tracking({ members }: { members: PublishedMember[] }) {
             <tr>
               <th>Employee</th>
               <th>Self assessment</th>
-              <th>Objective tests</th>
-              <th>Validation</th>
+              <th>Objective test</th>
+              <th>Evaluation</th>
               <th>Overall</th>
               <th className="col-actions" />
             </tr>
@@ -68,19 +68,24 @@ export function Tracking({ members }: { members: PublishedMember[] }) {
                     <Badge tone={sb.tone}>{sb.label}</Badge>
                   </td>
                   <td>
-                    <span className="track-count">
-                      {st.s.testsTaken}/{st.testable}
-                    </span>
+                    {st.testDone ? (
+                      <Badge tone="good">
+                        <Check size={11} strokeWidth={3} />
+                        &nbsp;Taken
+                      </Badge>
+                    ) : (
+                      <Badge>Not taken</Badge>
+                    )}
                   </td>
                   <td>
-                    {st.s.managerDone === st.total ? (
+                    {st.evaluation.state === 'done' ? (
                       <Badge tone="good">
                         <Check size={11} strokeWidth={3} />
                         &nbsp;Done
                       </Badge>
                     ) : (
-                      <a href="#/team/validations" className="track-count">
-                        {st.s.managerDone}/{st.total}
+                      <a href={`#/team/validate/${m.id}`} className="track-count">
+                        {st.evaluation.state === 'progress' ? `In progress · ${outOf(st.evaluation.done, st.evaluation.total)} skills` : 'Not started'}
                       </a>
                     )}
                   </td>
@@ -89,7 +94,7 @@ export function Tracking({ members }: { members: PublishedMember[] }) {
                       <div className="pbar" role="progressbar" aria-valuenow={st.progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${st.name} overall progress`}>
                         <span style={{ transform: `scaleX(${st.progress / 100})` }} />
                       </div>
-                      <b>{st.progress}%</b>
+                      <b>{outOf(st.steps, st.stepsTotal)} steps</b>
                     </div>
                   </td>
                   <td className="col-actions">

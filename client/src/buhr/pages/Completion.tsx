@@ -3,12 +3,14 @@ import { Bell } from 'lucide-react'
 import { Button, Card, Segmented, useToast } from '../../components/ui'
 import { timeAgo } from '../../team/logic'
 import { useBu } from '../BuContext'
+import { outOf } from '../../employee/logic'
 import { groupBy, owes, pct } from '../logic'
 import type { BuPerson, PublishedBu } from '../types'
 
-type Dim = 'manager' | 'function' | 'location' | 'level'
+type Dim = 'businessUnit' | 'manager' | 'function' | 'location' | 'level'
 
 const DIMS: { value: Dim; label: string; key: (p: BuPerson) => string }[] = [
+  { value: 'businessUnit', label: 'Business unit', key: (p) => p.employee.businessUnit },
   { value: 'manager', label: 'Manager', key: (p) => p.employee.manager },
   { value: 'function', label: 'Function', key: (p) => p.employee.function },
   { value: 'location', label: 'Location', key: (p) => p.employee.location },
@@ -21,7 +23,7 @@ function Bar({ done, all, label }: { done: number; all: number; label: string })
       <div className="pbar" role="progressbar" aria-valuenow={pct(done, all)} aria-valuemin={0} aria-valuemax={100} aria-label={label}>
         <span style={{ transform: `scaleX(${all ? done / all : 0})` }} />
       </div>
-      <span>{pct(done, all)}%</span>
+      <span>{outOf(done, all)}</span>
     </div>
   )
 }
@@ -54,7 +56,7 @@ export function BuCompletion({ data }: { data: PublishedBu }) {
     <Card
       title="Completion"
       description="Who is behind, and where. Sorted with the furthest behind first."
-      action={<Segmented label="Group by" value={dim} onChange={setDim} options={DIMS.map((d) => ({ value: d.value, label: d.label }))} />}
+      action={<Segmented label="Group by" value={dim} onChange={setDim} options={DIMS.filter((d) => d.value !== 'businessUnit' || data.scope.businessUnits.length > 1).map((d) => ({ value: d.value, label: d.label }))} />}
     >
       {!rows.length ? (
         <p className="muted">No one matches these filters.</p>
@@ -66,8 +68,8 @@ export function BuCompletion({ data }: { data: PublishedBu }) {
                 <th>{DIMS.find((d) => d.value === dim)!.label}</th>
                 <th>People</th>
                 <th>Self assessment</th>
-                <th>Tests</th>
-                <th>Validation</th>
+                <th>Objective test</th>
+                <th>Evaluation</th>
                 <th>Overall</th>
                 <th>Fully done</th>
                 <th className="col-actions" />
@@ -81,7 +83,7 @@ export function BuCompletion({ data }: { data: PublishedBu }) {
                   <tr key={g.name}>
                     <td className="strong">
                       {g.name}
-                      {dim === 'manager' && g.pending > 0 && <p className="muted">{g.pending} validation{g.pending === 1 ? '' : 's'} pending</p>}
+                      {dim === 'manager' && g.pending > 0 && <p className="muted">{g.pending} evaluation{g.pending === 1 ? '' : 's'} pending</p>}
                     </td>
                     <td>{g.t.n}</td>
                     <td>
@@ -91,10 +93,10 @@ export function BuCompletion({ data }: { data: PublishedBu }) {
                       <Bar done={g.t.testsDone} all={g.t.testsAll} label={`${g.name} tests`} />
                     </td>
                     <td>
-                      <Bar done={g.t.valDone} all={g.t.valAll} label={`${g.name} validations`} />
+                      <Bar done={g.t.valDone} all={g.t.valAll} label={`${g.name} evaluations`} />
                     </td>
                     <td>
-                      <b className="track-count">{g.t.progress}%</b>
+                      <b className="track-count">{outOf(g.t.steps, g.t.stepsAll)} steps</b>
                     </td>
                     <td>
                       {g.t.complete}/{g.t.n}
@@ -102,7 +104,7 @@ export function BuCompletion({ data }: { data: PublishedBu }) {
                     <td className="col-actions">
                       {canNudge && (
                         <div className="remind">
-                          <Button size="sm" onClick={() => nudge(g.name, g.rows)} title={dim === 'manager' ? 'Remind this manager about pending validations' : 'Remind everyone here who still has something to do'}>
+                          <Button size="sm" onClick={() => nudge(g.name, g.rows)} title={dim === 'manager' ? 'Remind this manager about pending evaluations' : 'Remind everyone here who still has something to do'}>
                             <Bell size={13} /> Remind
                           </Button>
                           {at && <small className="muted">Sent {timeAgo(at)}</small>}

@@ -4,6 +4,7 @@ import { distinct, emptyFilters, type Filters } from './logic'
 import { useBu } from './BuContext'
 
 const FIELDS: { key: keyof Filters; label: string; pick: (p: import('./types').BuPerson) => string }[] = [
+  { key: 'businessUnit', label: 'Business unit', pick: (p) => p.employee.businessUnit },
   { key: 'function', label: 'Function', pick: (p) => p.employee.function },
   { key: 'location', label: 'Location', pick: (p) => p.employee.location },
   { key: 'manager', label: 'Reporting manager', pick: (p) => p.employee.manager },
@@ -18,7 +19,7 @@ export function FilterBar() {
 
   return (
     <div className="bu-filters" role="group" aria-label="Filters">
-      {FIELDS.map((f) => (
+      {FIELDS.filter((f) => f.key !== 'businessUnit' || data.scope.businessUnits.length > 1).map((f) => (
         <select key={f.key} className="input" aria-label={f.label} value={filters[f.key]} onChange={(e) => setFilters({ ...filters, [f.key]: e.target.value })}>
           <option value="">All {f.label.toLowerCase()}s</option>
           {distinct(data.people, f.pick).map((v) => (

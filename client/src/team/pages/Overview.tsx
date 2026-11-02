@@ -1,27 +1,26 @@
 import { ArrowRight } from 'lucide-react'
 import { Card } from '../../components/ui'
-import { clusterStatus, type ClusterStatus } from '../../employee/logic'
+import { clusterStatus, outOf, type ClusterStatus } from '../../employee/logic'
 import { HEAT_LABEL, memberStats, type PublishedMember } from '../logic'
 
-const ORDER: ClusterStatus[] = ['cleared', 'open', 'gap', 'incomplete']
+const ORDER: ClusterStatus[] = ['cleared', 'gap', 'incomplete']
 
 export function TeamOverview({ members }: { members: PublishedMember[] }) {
   const stats = members.map((m) => ({ m, st: memberStats(m) }))
   const sum = (f: (s: ReturnType<typeof memberStats>) => number) => stats.reduce((a, { st }) => a + f(st), 0)
 
   const selfDone = stats.filter(({ st }) => st.selfState === 'submitted').length
-  const testsDone = sum((st) => st.s.testsTaken)
-  const testsAll = sum((st) => st.testable)
-  const validDone = sum((st) => st.s.managerDone)
-  const validAll = sum((st) => st.total)
+  // One test and one evaluation per person, so these count people.
+  const testsDone = stats.filter(({ st }) => st.testDone).length
+  const evalsDone = stats.filter(({ st }) => st.evaluation.state === 'done').length
   const clusters = sum((st) => st.total)
   const cleared = sum((st) => st.s.cleared.length)
   const gaps = sum((st) => st.s.gaps.length)
-  const pending = stats.flatMap(({ m, st }) => st.validationsPending.map((c) => ({ m, c })))
+  const pending = stats.filter(({ st }) => st.evaluation.state !== 'done')
 
   const columns = members[0].snapshot.clusters
   const bySkill = columns.map((col) => {
-    const counts: Record<ClusterStatus, number> = { cleared: 0, open: 0, gap: 0, incomplete: 0 }
+    const counts: Record<ClusterStatus, number> = { cleared: 0, gap: 0, incomplete: 0 }
     for (const m of members) {
       const c = m.snapshot.clusters.find((x) => x.id === col.id)
       if (c) counts[clusterStatus(c, m.snapshot.scoring)]++
@@ -31,8 +30,8 @@ export function TeamOverview({ members }: { members: PublishedMember[] }) {
 
   const funnel = [
     { label: 'Self assessments submitted', done: selfDone, all: members.length },
-    { label: 'Objective tests taken', done: testsDone, all: testsAll },
-    { label: 'Manager validations done', done: validDone, all: validAll },
+    { label: 'Objective test taken', done: testsDone, all: members.length },
+    { label: 'Manager evaluations done', done: evalsDone, all: members.length },
   ]
 
   return (
@@ -44,10 +43,10 @@ export function TeamOverview({ members }: { members: PublishedMember[] }) {
         </div>
         <div className="tally-item" data-tone={pending.length ? 'warn' : 'good'}>
           <strong>{pending.length}</strong>
-          <span>Validations waiting on you</span>
+          <span>Evaluations waiting on you</span>
         </div>
         <div className="tally-item" data-tone="good">
-          <strong>{clusters ? Math.round((cleared / clusters) * 100) : 0}%</strong>
+          <strong>{outOf(cleared, clusters)}</strong>
           <span>Skills cleared</span>
         </div>
         <div className="tally-item" data-tone={gaps ? 'bad' : 'good'}>
@@ -59,14 +58,10 @@ export function TeamOverview({ members }: { members: PublishedMember[] }) {
       {pending.length > 0 && (
         <section className="callout callout-warn attention">
           <div>
-            <p className="strong">{pending.length} validation{pending.length === 1 ? '' : 's'} waiting on you</p>
-            <p>
-              {pending.slice(0, 3).map(({ m, c }) => `${m.snapshot.employee.name.split(' ')[0]}: ${c.name}`).join(' · ')}
-              {pending.length > 3 ? ` · and ${pending.length - 3} more` : ''}
-            </p>
+            <p className="strong">{pending.length} evaluation{pending.length === 1 ? '' : 's'} waiting on you</p>
           </div>
           <a className="btn btn-primary" href="#/team/validations">
-            Start validating <ArrowRight size={15} />
+            Start evaluating <ArrowRight size={15} />
           </a>
         </section>
       )}
@@ -79,9 +74,7 @@ export function TeamOverview({ members }: { members: PublishedMember[] }) {
               <div className="pbar" role="progressbar" aria-valuenow={f.all ? Math.round((f.done / f.all) * 100) : 0} aria-valuemin={0} aria-valuemax={100} aria-label={f.label}>
                 <span style={{ transform: `scaleX(${f.all ? f.done / f.all : 0})` }} />
               </div>
-              <b>
-                {f.done}/{f.all}
-              </b>
+              <b>{outOf(f.done, f.all)}</b>
             </li>
           ))}
         </ul>
@@ -133,7 +126,7 @@ export function TeamOverview({ members }: { members: PublishedMember[] }) {
         </div>
       </Card>
 
-      <Card title="Where the team is strong or stretched" description="Number of people in each state, per skill.">
+      <Card title="Where the team is strong or requires development" description="Number of people in each state, per skill.">
         <ul className="skill-split">
           {bySkill.map(({ col, counts }) => (
             <li key={col.id}>
@@ -144,6 +137,13 @@ export function TeamOverview({ members }: { members: PublishedMember[] }) {
             </li>
           ))}
         </ul>
+        <div className="legend">
+          {ORDER.map((s) => (
+            <span key={s}>
+              <i className="swatch heat-swatch" data-status={s} /> {HEAT_LABEL[s]}
+            </span>
+          ))}
+        </div>
       </Card>
     </div>
   )

@@ -4,6 +4,7 @@ import { NotPublished, PageHead } from '../employee/shared'
 import { PersonView } from '../team/pages/MemberDetail'
 import type { PublishedMember } from '../team/logic'
 import { useBu } from './BuContext'
+import { scopeLabel } from './logic'
 import { FilterBar } from './FilterBar'
 import { BuOverview } from './pages/Overview'
 import { BuCompletion } from './pages/Completion'
@@ -16,10 +17,10 @@ export type BuView = 'overview' | 'completion' | 'skills' | 'employees' | 'excep
 export type BuRoute = { view: Exclude<BuView, 'person' | 'card'> } | { view: 'person' | 'card'; id: string }
 
 const HEAD: Record<Exclude<BuView, 'person' | 'card'>, { title: string; sub: string }> = {
-  overview: { title: 'Business unit overview', sub: 'How the whole unit is getting on this cycle.' },
+  overview: { title: 'Business unit overview', sub: 'How everyone in scope is getting on this cycle.' },
   completion: { title: 'Completion tracking', sub: 'Who is behind and where, by manager, function, location or level.' },
-  skills: { title: 'Skill gaps', sub: 'Which skills are strong or stretched across the unit.' },
-  employees: { title: 'Employees', sub: 'Everyone in the business unit, with progress, filters and export.' },
+  skills: { title: 'Skill gaps', sub: 'Which skills are strong or require development across the unit.' },
+  employees: { title: 'Employees', sub: 'Everyone in your business units, with progress, filters and export.' },
   exceptions: { title: 'Exceptions', sub: 'People who need a data fix or a first nudge.' },
   cards: { title: 'Skill cards', sub: "Each person's strengths and development areas on one page, ready to read or print." },
 }
@@ -91,8 +92,13 @@ export function BuPage({ route }: { route: BuRoute }) {
   const head = HEAD[route.view]
   return (
     <>
-      <PageHead title={head.title} sub={`${data.scope.organization} · ${data.scope.businessUnit} · ${head.sub}`} />
+      <PageHead title={head.title} sub={`${scopeLabel(data.scope)} · ${head.sub}`} />
       <div className="stack">
+        {data.unpublished.length > 0 && (
+          <p className="callout callout-warn">
+            No published framework yet for {data.unpublished.join(', ')}, so {data.unpublished.length === 1 ? 'its' : 'their'} people aren't tracked here.
+          </p>
+        )}
         <FilterBar />
         {route.view === 'overview' && <BuOverview data={data} />}
         {route.view === 'completion' && <BuCompletion data={data} />}

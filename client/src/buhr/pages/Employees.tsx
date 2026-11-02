@@ -4,7 +4,8 @@ import { Badge, Button, Card, Segmented, useToast } from '../../components/ui'
 import { downloadText, toCsv } from '../../lib/importers'
 import { timeAgo } from '../../team/logic'
 import { useBu } from '../BuContext'
-import { countStatuses, owes, progressOf } from '../logic'
+import { outOf } from '../../employee/logic'
+import { STEPS_PER_PERSON, countStatuses, evalState, owes, progressOf, testDone } from '../logic'
 import type { BuPerson, PublishedBu } from '../types'
 
 type SortKey = 'name' | 'function' | 'manager' | 'progress' | 'gaps'
@@ -32,7 +33,7 @@ const sortValue = (p: BuPerson, k: SortKey): string | number => {
 }
 
 export function BuEmployees({ data }: { data: PublishedBu }) {
-  const { filtered, remind } = useBu()
+  const { filtered, filters, remind } = useBu()
   const toast = useToast()
   const [q, setQ] = useState('')
   const [stage, setStage] = useState<Stage>('all')
@@ -64,12 +65,13 @@ export function BuEmployees({ data }: { data: PublishedBu }) {
   const owing = rows.filter((p) => owes(p).length)
 
   const exportCsv = () => {
-    const head = ['Employee ID', 'Name', 'Email', 'Function', 'Location', 'Reporting manager', 'Skip manager', 'Level', 'Self assessment', 'Tests taken', 'Tests total', 'Validations done', 'Validations total', 'Overall %', 'Cleared', 'In progress', 'Gaps', 'Awaiting', 'Exception']
+    const head = ['Employee ID', 'Name', 'Email', 'Business unit', 'Function', 'Location', 'Reporting manager', 'Skip manager', 'Level', 'Self assessment', 'Objective test taken', 'Skills evaluated', 'Skills in evaluation', 'Steps done (out of 3)', 'Cleared', 'Gaps', 'Awaiting', 'Exception']
     const body = rows.map((p) => {
       const s = countStatuses(p)
-      return [p.employee.employeeId, p.employee.name, p.employee.email, p.employee.function, p.employee.location, p.employee.manager, p.employee.skipManager, p.level, p.self, p.tests.taken, p.tests.total, p.validation.done, p.validation.total, progressOf(p).progress, s.cleared, s.open, s.gap, s.incomplete, p.employee.exception ?? ''].map(String)
+      return [p.employee.employeeId, p.employee.name, p.employee.email, p.employee.businessUnit, p.employee.function, p.employee.location, p.employee.manager, p.employee.skipManager, p.level, p.self, testDone(p) ? 'Yes' : 'No', p.validation.done, p.validation.total, progressOf(p).steps, s.cleared, s.gap, s.incomplete, p.employee.exception ?? ''].map(String)
     })
-    downloadText(`${data.scope.organization}-${data.scope.businessUnit}-skills-tracking.csv`.toLowerCase().replace(/\s+/g, '-'), toCsv([head, ...body]))
+    const unit = filters.businessUnit || (data.scope.businessUnits.length === 1 ? data.scope.businessUnits[0] : 'all-units')
+    downloadText(`${data.scope.organization}-${unit}-skills-tracking.csv`.toLowerCase().replace(/\s+/g, '-'), toCsv([head, ...body]))
     toast(`Exported ${rows.length} ${rows.length === 1 ? 'person' : 'people'}`)
   }
 
@@ -85,7 +87,7 @@ export function BuEmployees({ data }: { data: PublishedBu }) {
   return (
     <Card
       title={`Employees (${rows.length})`}
-      description="Everyone in the business unit with their progress. Select a name for the full picture."
+      description="Everyone in your business units with their progress. Select a name for the full picture."
       action={
         <div className="btn-row">
           <Button size="sm" onClick={exportCsv} disabled={!rows.length}>
@@ -118,15 +120,15 @@ export function BuEmployees({ data }: { data: PublishedBu }) {
               {th('function', 'Function')}
               {th('manager', 'Manager')}
               <th>Self</th>
-              <th>Tests</th>
-              <th>Validation</th>
+              <th>Objective test</th>
+              <th>Evaluation</th>
               {th('progress', 'Overall')}
               {th('gaps', 'Skills')}
             </tr>
           </thead>
           <tbody>
             {rows.map((p) => {
-              const { progress, complete } = progressOf(p)
+              const { progress, steps, complete } = progressOf(p)
               const s = countStatuses(p)
               const sb = SELF_BADGE[p.self]
               const at = data.reminders[p.id]
@@ -137,7 +139,7 @@ export function BuEmployees({ data }: { data: PublishedBu }) {
                       {p.employee.name}
                     </a>
                     <p className="muted">
-                      {p.employee.employeeId} · {p.employee.location}
+                      {p.employee.employeeId} · {data.scope.businessUnits.length > 1 ? `${p.employee.businessUnit} · ` : ''}{p.employee.location}
                     </p>
                     {p.employee.exception && <Badge tone="warn">{p.employee.exception}</Badge>}
                   </td>
@@ -146,25 +148,28 @@ export function BuEmployees({ data }: { data: PublishedBu }) {
                   <td>
                     <Badge tone={sb.tone}>{sb.label}</Badge>
                   </td>
-                  <td className="track-count">
-                    {p.tests.taken}/{p.tests.total}
-                  </td>
-                  <td className="track-count">
-                    {p.validation.done}/{p.validation.total}
+                  <td>{testDone(p) ? <Badge tone="good">Taken</Badge> : <Badge>Not taken</Badge>}</td>
+                  <td>
+                    {evalState(p) === 'done' ? (
+                      <Badge tone="good">Done</Badge>
+                    ) : evalState(p) === 'progress' ? (
+                      <Badge tone="warn">{outOf(p.validation.done, p.validation.total)} skills</Badge>
+                    ) : (
+                      <Badge>Not started</Badge>
+                    )}
                   </td>
                   <td>
                     <div className="track-overall">
                       <div className="pbar" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${p.employee.name} overall progress`}>
                         <span style={{ transform: `scaleX(${progress / 100})` }} />
                       </div>
-                      <b>{progress}%</b>
+                      <b>{outOf(steps, STEPS_PER_PERSON)} steps</b>
                     </div>
                     {complete ? <small className="muted">Complete</small> : at ? <small className="muted">Reminded {timeAgo(at)}</small> : null}
                   </td>
                   <td>
                     <span className="skill-mini">
                       {s.cleared > 0 && <span data-status="cleared" title="Cleared">{s.cleared}</span>}
-                      {s.open > 0 && <span data-status="open" title="In progress">{s.open}</span>}
                       {s.gap > 0 && <span data-status="gap" title="Gaps">{s.gap}</span>}
                       {s.incomplete > 0 && <span data-status="incomplete" title="Awaiting">{s.incomplete}</span>}
                     </span>

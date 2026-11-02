@@ -1,3 +1,4 @@
+import type { EvidenceRule } from '../types'
 export interface Bands {
   s1Max: number
   s2Max: number
@@ -46,7 +47,13 @@ export interface TestAttempt {
   pct: number | null
   score: 1 | 2 | 3 | null
   correct: number | null
+  /** Weighted points earned and available, when known. */
+  earned: number | null
+  possible: number | null
   total: number
+  /** Times the person left the test or tried to capture it. */
+  violations: number
+  autoSubmitted: boolean
 }
 
 export interface Cluster {
@@ -67,14 +74,12 @@ export interface Cluster {
     comment: string
   }
   validation: { status: 'none' | 'draft' | 'submitted'; answers: Record<string, TaskAnswer>; comment: string; at: string | null }
+  /** This skill's section of the objective test. */
   test: {
     questionCount: number
-    testLength: number
-    attemptsLeft: number
     latest: TestAttempt | null
-    inProgressId: string | null
   }
-  previous: { managerPct: number | null; testPct: number }
+  previous: { managerPct: number | null; testPct: number | null }
 }
 
 export interface Reflection {
@@ -95,25 +100,41 @@ export type MeSnapshot =
       labels: { skill: string; subskill: string; task: string }
       levels: { id: string; name: string }[]
       currentLevelId: string
-      evidence: 'never' | 'on-negative' | 'always'
+      evidence: EvidenceRule
       scale: { type: string; yesLabel?: string; noLabel?: string; allowNA?: boolean }
       scoring: { manager: Bands; test: Bands; courseTriggerBelow: number; progressionMin: number; missingInput: 'incomplete' | 'treat-as-zero' }
       self: { submittedAt: string | null }
       clusters: Cluster[]
+      test: ObjectiveTest
       reflection: Reflection
     }
 
 export type PublishedMe = Extract<MeSnapshot, { published: true }>
 
+/** The objective test as one module with a section per skill. */
+export interface ObjectiveTest {
+  questionCount: number
+  /** Questions the test will have: up to ten from each skill that has any. */
+  testLength: number
+  skills: { id: string; name: string; count: number }[]
+  attemptsLeft: number
+  latest: TestAttempt | null
+  inProgressId: string | null
+}
+
 export interface TestStart {
   attemptId: string
-  skillId: string
-  skillName: string
-  questions: { id: string; text: string; options: string[] }[]
+  maxViolations: number
+  violations: number
+  /** Sections in order, one per skill. Questions come grouped by section. */
+  sections: { id: string; name: string; count: number }[]
+  questions: { id: string; skillId: string; text: string; options: string[] }[]
 }
 
 export interface ReviewItem {
   id: string
+  skillId: string
+  skill: string
   text: string
   options: string[]
   difficulty: 'easy' | 'medium' | 'hard'
@@ -123,9 +144,22 @@ export interface ReviewItem {
   explanation: string
 }
 
+/** One section's result. */
+export interface SectionResult {
+  skillId: string
+  name: string
+  pct: number | null
+  score: 1 | 2 | 3 | null
+  correct: number | null
+  earned: number | null
+  possible: number | null
+  total: number
+}
+
 export interface TestResult {
   attempt: TestAttempt
   review: ReviewItem[]
+  breakdown: SectionResult[]
 }
 
 export interface TeamMember {

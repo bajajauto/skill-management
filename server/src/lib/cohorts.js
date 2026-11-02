@@ -19,7 +19,7 @@ export const defaultConfig = (organization, businessUnit) => ({
   labels: { skill: 'Skill', subskill: 'Sub-skill', task: 'Task' },
   levels: LEVELS,
   scale: { type: 'binary', yesLabel: 'Yes', noLabel: 'No', allowNA: true },
-  evidence: 'on-negative',
+  evidence: { always: false, lowest: true, highest: false },
   scoring: {
     manager: { s1Max: 33, s2Max: 66 },
     test: { s1Max: 60, s2Max: 85 },

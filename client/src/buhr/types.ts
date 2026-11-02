@@ -21,6 +21,7 @@ export interface BuPerson {
     designation: string
     jobProfile: string
     function: string
+    businessUnit: string
     location: string
     manager: string
     skipManager: string
@@ -36,14 +37,23 @@ export interface BuPerson {
   clusters: BuCluster[]
 }
 
+/** A BUHR can look after several business units within their organization. */
+export interface BuScope {
+  organization: string
+  businessUnits: string[]
+}
+
 export type BuTracking =
-  | { published: false; scope: { organization: string; businessUnit: string }; cycle: Cycle; reminders: Record<string, string> }
+  | { published: false; scope: BuScope; unpublished: string[]; cycle: Cycle; reminders: Record<string, string> }
   | {
       published: true
-      scope: { organization: string; businessUnit: string }
+      scope: BuScope
       cycle: Cycle
       reminders: Record<string, string>
-      version: number
+      /** Business units in scope that have no published framework yet, so their people can't be tracked. */
+      unpublished: string[]
+      /** The published framework version each business unit is on. */
+      versions: { unit: string; version: number }[]
       labels: { skill: string; subskill: string; task: string }
       levels: { id: string; name: string }[]
       skills: { id: string; name: string; critical: boolean }[]

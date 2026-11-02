@@ -13,6 +13,9 @@ export type Scale =
   | { type: 'percentage'; step: number }
 
 export interface SkillNode {
+  /** Set when the skill applies to one job profile only (imported frameworks). */
+  jobProfile?: string
+  sourceName?: string
   id: string
   type: NodeType
   parentId: string | null
@@ -53,6 +56,13 @@ export interface ScoringConfig {
 export const ORGANIZATIONS = ['BAL', 'BACL', 'BATL', 'BAF'] as const
 export type Organization = (typeof ORGANIZATIONS)[number]
 
+/** When a validation comment is required. Nothing ticked means optional; 'always' implies both ends. */
+export interface EvidenceRule {
+  always: boolean
+  lowest: boolean
+  highest: boolean
+}
+
 /** Which setup steps the TD admin has signed off, either by accepting the defaults or by editing them. */
 export interface Reviewed {
   framework: boolean
@@ -68,7 +78,7 @@ export interface Config {
   labels: Record<NodeType, string>
   levels: Level[]
   scale: Scale
-  evidence: 'never' | 'on-negative' | 'always'
+  evidence: EvidenceRule
   scoring: ScoringConfig
 }
 
