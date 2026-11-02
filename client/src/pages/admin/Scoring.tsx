@@ -24,7 +24,7 @@ export function Scoring() {
       >
         <div className="bands">
           <BandEditor
-            title="Manager validation"
+            title="Manager evaluation"
             hint={config.scale.type === 'binary' ? 'Share of applicable tasks marked positive.' : 'Average rating, normalised to 0–100%.'}
             bands={s.manager}
             onChange={(manager) => set({ manager })}
@@ -35,24 +35,15 @@ export function Scoring() {
       </Card>
 
       <Card title="Gap & progression rules" description="Applied to the manager and test scores. Self-rating is reflection only and never counts.">
-        <div className="grid-2">
-          <Field label="Flag a development gap when either score is below" hint="Course-trigger threshold.">
-            <Segmented
-              label="Course trigger"
-              value={s.courseTriggerBelow}
-              onChange={(v) => set({ courseTriggerBelow: v })}
-              options={[1, 2, 3].map((v) => ({ value: v as 1 | 2 | 3, label: String(v) }))}
-            />
-          </Field>
-          <Field label="Cluster is cleared when both scores reach" hint="Progression threshold.">
-            <Segmented
-              label="Progression minimum"
-              value={s.progressionMin}
-              onChange={(v) => set({ progressionMin: v })}
-              options={[1, 2, 3].map((v) => ({ value: v as 1 | 2 | 3, label: String(v) }))}
-            />
-          </Field>
-        </div>
+        <Field label="A skill is cleared when both scores reach" hint="If either the manager score or the test score is below this, the skill is a development gap.">
+          <Segmented
+            label="Target score"
+            value={s.progressionMin}
+            // The same bar decides gaps and clearing, so the older separate gap threshold is kept in step with it.
+            onChange={(v) => set({ progressionMin: v, courseTriggerBelow: v })}
+            options={[1, 2, 3].map((v) => ({ value: v as 1 | 2 | 3, label: String(v) }))}
+          />
+        </Field>
         <Field label="When a score is missing" hint="Strict rule: no gap decision fires until both inputs exist, unless you choose otherwise.">
           <Segmented
             label="Missing input"
@@ -131,7 +122,6 @@ function Simulator() {
   const [test, setTest] = useState(55)
   const m = percentToScore(mgr, s.manager)
   const t = percentToScore(test, s.test)
-  const gap = m < s.courseTriggerBelow || t < s.courseTriggerBelow
   const cleared = m >= s.progressionMin && t >= s.progressionMin
 
   return (
@@ -152,8 +142,8 @@ function Simulator() {
             {test}% → <b data-score={t}>{t}</b>
           </output>
         </label>
-        <div className="sim-result" data-state={cleared ? 'cleared' : gap ? 'gap' : 'open'}>
-          {cleared ? 'Cluster cleared' : gap ? 'Development gap' : 'Open: below clearance, not a gap'}
+        <div className="sim-result" data-state={cleared ? 'cleared' : 'gap'}>
+          {cleared ? 'Skill cleared' : 'Development gap'}
         </div>
       </div>
     </div>

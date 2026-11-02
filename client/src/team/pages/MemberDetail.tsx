@@ -1,11 +1,11 @@
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { Badge, Card } from '../../components/ui'
-import { SCORE_NAME, SELF_LABEL, clusterStatus, fmtDate, managerScore, pctOf, testScore } from '../../employee/logic'
+import { SCORE_NAME, SELF_LABEL, clusterStatus, fmtDate, managerScore, outOf, testScore, testText } from '../../employee/logic'
 import { ScoreChip, StatusBadge } from '../../employee/shared'
 import { useTeam } from '../TeamContext'
 import { isPublished, memberStats, timeAgo, type PublishedMember } from '../logic'
 
-/** Read-only profile of one person's cycle. Managers can jump from here to validating a skill. */
+/** Read-only profile of one person's cycle. Managers can jump from here to evaluating the person. */
 export function PersonView({ member, backHref, backLabel, canValidate }: { member: PublishedMember; backHref: string; backLabel: string; canValidate: boolean }) {
   const m = member.snapshot
   const e = m.employee
@@ -26,7 +26,7 @@ export function PersonView({ member, backHref, backLabel, canValidate }: { membe
               {e.designation} · {e.employeeId}
             </p>
           </div>
-          <Badge tone={st.complete ? 'good' : 'warn'}>{st.complete ? 'Cycle complete' : `${st.progress}% through the cycle`}</Badge>
+          <Badge tone={st.complete ? 'good' : 'warn'}>{st.complete ? 'Cycle complete' : `${outOf(st.steps, st.stepsTotal)} steps done`}</Badge>
         </div>
         <dl className="facts">
           <div><dt>Job profile</dt><dd>{e.jobProfile}</dd></div>
@@ -41,13 +41,22 @@ export function PersonView({ member, backHref, backLabel, canValidate }: { membe
         </dl>
         <div className="tally" style={{ marginTop: 16 }}>
           <div className="tally-item" data-tone="good"><strong>{st.s.cleared.length}</strong><span>Cleared</span></div>
-          <div className="tally-item" data-tone="warn"><strong>{st.s.open.length}</strong><span>In progress</span></div>
           <div className="tally-item" data-tone="bad"><strong>{st.s.gaps.length}</strong><span>Gaps</span></div>
           <div className="tally-item" data-tone="neutral"><strong>{st.s.incomplete.length}</strong><span>Awaiting</span></div>
         </div>
       </Card>
 
-      <Card title="Skill by skill" description="Self rating is for their own reflection and is not part of the result.">
+      <Card
+        title="Skill by skill"
+        description="Self rating is for their own reflection and is not part of the result."
+        action={
+          canValidate ? (
+            <a className="btn btn-sm btn-primary" href={`#/team/validate/${member.id}`}>
+              {st.evaluation.state === 'done' ? 'Review evaluation' : st.evaluation.state === 'progress' ? 'Continue evaluation' : 'Start evaluation'} <ArrowRight size={13} />
+            </a>
+          ) : undefined
+        }
+      >
         <div className="table-wrap">
           <table className="table">
             <thead>
@@ -57,7 +66,6 @@ export function PersonView({ member, backHref, backLabel, canValidate }: { membe
                 <th>Manager</th>
                 <th>Test</th>
                 <th>Status</th>
-                {canValidate && <th className="col-actions" />}
               </tr>
             </thead>
             <tbody>
@@ -69,22 +77,24 @@ export function PersonView({ member, backHref, backLabel, canValidate }: { membe
                   </td>
                   <td>
                     <ScoreChip score={managerScore(c)} />
-                    <span className="muted"> {managerScore(c) ? `${pctOf(c.manager.pct)}` : 'Pending'}</span>
+                    <span className="muted"> {managerScore(c) ? (c.manager.applicable ? `${outOf(c.manager.yes, c.manager.applicable)} tasks` : outOf(c.manager.calibrated, 3)) : 'Pending'}</span>
                   </td>
                   <td>
                     <ScoreChip score={testScore(c)} />
-                    <span className="muted"> {c.test.latest ? `${pctOf(c.test.latest.pct)}` : 'Not taken'}</span>
+                    <span className="muted"> {c.test.latest ? testText(c.test.latest) : 'Not taken'}</span>
+                    {c.test.latest && c.test.latest.violations > 0 && (
+                      <>
+                        {' '}
+                        <Badge tone="warn">
+                          {c.test.latest.autoSubmitted ? 'Auto-submitted · ' : ''}
+                          {c.test.latest.violations} strike{c.test.latest.violations === 1 ? '' : 's'}
+                        </Badge>
+                      </>
+                    )}
                   </td>
                   <td>
                     <StatusBadge status={clusterStatus(c, m.scoring)} />
                   </td>
-                  {canValidate && (
-                    <td className="col-actions">
-                      <a className="btn btn-sm" href={`#/team/validate/${member.id}/${c.id}`}>
-                        {c.manager.status === 'calibrated' ? 'Review' : 'Validate'} <ArrowRight size={13} />
-                      </a>
-                    </td>
-                  )}
                 </tr>
               ))}
             </tbody>

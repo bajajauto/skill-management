@@ -15,7 +15,7 @@ export const defaultConfig = (): Config => ({
     { id: 'lvl-advanced', name: 'Advanced' },
   ],
   scale: { type: 'binary', yesLabel: 'Yes', noLabel: 'No', allowNA: true },
-  evidence: 'on-negative',
+  evidence: { always: false, lowest: true, highest: false },
   scoring: {
     // 1 = 0-33%, 2 = 34-66%, 3 = 67-100% (architecture doc, rating scale)
     manager: { s1Max: 33, s2Max: 66 },

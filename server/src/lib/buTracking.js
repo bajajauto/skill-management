@@ -1,4 +1,4 @@
-import { CYCLE, EMPLOYEES, buPeopleIds, profileOf } from './demoEmployee.js'
+import { BUHR_SCOPE, CYCLE, EMPLOYEES, profileOf, scopePeopleIds } from './demoEmployee.js'
 import { buildSnapshot } from './employeeData.js'
 import { publishedFor } from './cohorts.js'
 
@@ -8,12 +8,16 @@ export function clusterStatusOf(c, s) {
   const m = fill(c.manager.status === 'pending' ? null : c.manager.calibrated)
   const t = fill(c.test.latest?.score ?? null)
   if (m == null || t == null) return 'incomplete'
-  if (m < s.courseTriggerBelow || t < s.courseTriggerBelow) return 'gap'
+  // One bar: both scores reaching it clears the skill, and either one below it is a development gap.
   if (m >= s.progressionMin && t >= s.progressionMin) return 'cleared'
-  return 'open'
+  return 'gap'
 }
 
-const PROFILE_FIELDS = ['employeeId', 'name', 'email', 'designation', 'jobProfile', 'function', 'location', 'manager', 'skipManager', 'joined', 'jobLevel', 'exception']
+const PROFILE_FIELDS = ['employeeId', 'name', 'email', 'designation', 'jobProfile', 'function', 'businessUnit', 'location', 'manager', 'skipManager', 'joined', 'jobLevel', 'exception']
+const norm = (s) => String(s ?? '').trim().toLowerCase()
+
+/** The business units a BUHR looks after (within their own organization). */
+export const unitsOf = (buhrId) => BUHR_SCOPE[buhrId] ?? [EMPLOYEES[buhrId].businessUnit]
 
 /** One row per person, small enough to ship forty or four hundred of them to the browser. */
 function compact(id, snap) {
@@ -41,19 +45,28 @@ function compact(id, snap) {
   }
 }
 
-/** Everything the BUHR view needs about the business unit the viewer belongs to. */
+/** Everything the BUHR view needs about the business units the viewer looks after. */
 export async function buildTracking(buhrId, reminders) {
   const viewer = EMPLOYEES[buhrId]
-  const scope = { organization: viewer.organization, businessUnit: viewer.businessUnit }
+  const units = unitsOf(buhrId)
+  const scope = { organization: viewer.organization, businessUnits: units }
   const base = { scope, cycle: CYCLE, reminders }
-  const fw = await publishedFor(viewer)
-  if (!fw) return { ...base, published: false }
 
-  const ids = buPeopleIds(viewer.organization, viewer.businessUnit)
-  const snaps = await Promise.all(ids.map((id) => buildSnapshot(id, { fw })))
-  const people = snaps.map((s, i) => compact(ids[i], s)).filter((p) => p.clusters.length > 0 || true)
+  // Each business unit has its own published framework. A unit without one can't be tracked yet.
+  const frameworks = new Map()
+  const unpublished = []
+  for (const unit of units) {
+    const fw = await publishedFor({ organization: viewer.organization, businessUnit: unit })
+    if (fw) frameworks.set(norm(unit), { unit, fw })
+    else unpublished.push(unit)
+  }
+  if (!frameworks.size) return { ...base, published: false, unpublished }
 
-  // Skills are the same for everyone at the same level; take the union in first-seen order.
+  const ids = scopePeopleIds(viewer.organization, units).filter((id) => frameworks.has(norm(profileOf(id).businessUnit)))
+  const snaps = await Promise.all(ids.map((id) => buildSnapshot(id, { fw: frameworks.get(norm(profileOf(id).businessUnit)).fw })))
+  const people = snaps.map((s, i) => compact(ids[i], s))
+
+  // Skills are the same wherever the same skill is used; take the union in first-seen order.
   const seen = new Map()
   snaps.forEach((s) => s.clusters.forEach((c) => !seen.has(c.id) && seen.set(c.id, { id: c.id, name: c.name, critical: c.critical })))
 
@@ -61,7 +74,8 @@ export async function buildTracking(buhrId, reminders) {
   return {
     ...base,
     published: true,
-    version: fw.version,
+    unpublished,
+    versions: [...frameworks.values()].map(({ unit, fw }) => ({ unit, version: fw.version })),
     labels: first.labels,
     levels: first.levels,
     skills: [...seen.values()],
@@ -69,8 +83,10 @@ export async function buildTracking(buhrId, reminders) {
   }
 }
 
+/** Whether a person belongs to one of the business units this BUHR looks after. */
 export const personInBu = (buhrId, empId) => {
   const v = EMPLOYEES[buhrId]
   const p = profileOf(empId)
-  return Boolean(v && p && p.organization === v.organization && String(p.businessUnit).toLowerCase() === String(v.businessUnit).toLowerCase())
+  const units = new Set(unitsOf(buhrId).map(norm))
+  return Boolean(v && p && p.organization === v.organization && units.has(norm(p.businessUnit)))
 }

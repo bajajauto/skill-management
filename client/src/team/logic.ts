@@ -1,4 +1,4 @@
-import { summarize, type ClusterStatus } from '../employee/logic'
+import { evaluationOf, summarize, type ClusterStatus } from '../employee/logic'
 import type { PublishedMe, TeamMember } from '../employee/types'
 
 export type PublishedMember = TeamMember & { snapshot: PublishedMe }
@@ -11,17 +11,20 @@ export function memberStats(m: PublishedMember) {
   const total = snap.clusters.length
   const testable = s.testableCount || total
   const selfState: 'submitted' | 'draft' | 'none' = s.selfDone ? 'submitted' : s.selfDraftCount ? 'draft' : 'none'
-  const validationsPending = snap.clusters.filter((c) => c.manager.status === 'pending')
+  const evaluation = evaluationOf(snap)
+  // The objective test is one test per person: taken once every skill that has questions has its section scored.
+  const testDone = s.testsTaken >= testable
   const parts = [s.selfDone ? 1 : s.selfDraftCount / (total || 1) / 2, s.testsTaken / (testable || 1), s.managerDone / (total || 1)]
   const progress = Math.round((parts.reduce((a, b) => a + b, 0) / parts.length) * 100)
-  const complete = s.selfDone && s.managerDone === total && s.testsTaken >= testable
-  return { s, total, testable, selfState, validationsPending, progress, complete, name: snap.employee.name }
+  const complete = s.selfDone && evaluation.state === 'done' && testDone
+  // Three parts to a cycle: the self assessment, the objective test and the manager's evaluation of every skill.
+  const steps = [s.selfDone, testDone, evaluation.state === 'done'].filter(Boolean).length
+  return { s, total, testable, selfState, evaluation, testDone, progress, steps, stepsTotal: 3, complete, name: snap.employee.name }
 }
 
 export const HEAT_LABEL: Record<ClusterStatus, string> = {
   cleared: 'Cleared',
   gap: 'Development gap',
-  open: 'In progress',
   incomplete: 'Awaiting results',
 }
 

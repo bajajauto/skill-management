@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { isReal, realUser, searchReal } from '../lib/realData.js'
 
 export const authRouter = Router()
 
@@ -22,4 +23,13 @@ authRouter.post('/login', (req, res) => {
   const user = USERS.find((u) => u.email === email && u.password === password)
   if (!user) return res.status(401).json({ error: 'Incorrect email or password.' })
   res.json({ user: publicUser(user) })
+})
+
+// Imported real people (see scripts/import-real.mjs). Demo-only sign-in: pick a person, no password.
+authRouter.get('/real', (req, res) => res.json(searchReal(req.query.q)))
+
+authRouter.post('/real-login', (req, res) => {
+  const id = String(req.body?.id ?? '')
+  if (!isReal(id)) return res.status(404).json({ error: 'No imported person with that id.' })
+  res.json({ user: realUser(id) })
 })

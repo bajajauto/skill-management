@@ -27,6 +27,8 @@ export interface User {
   email: string
 }
 export type DemoUser = User & { password: string }
+/** An imported real person, found by name or employee id. */
+export type RealUser = User & { detail: string }
 
 const json = async <T>(p: Promise<Response>) => (await p).json() as Promise<T>
 const send = (method: string, body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) })
@@ -34,8 +36,9 @@ const send = (method: string, body?: unknown): RequestInit => ({ method, body: b
 export const meApi = {
   get: () => json<MeSnapshot>(request('/me')),
   saveSelf: (ratings: Record<string, { rating: number; comment: string }>, submit: boolean) => json<MeSnapshot>(request('/me/self-assessment', send('PUT', { ratings, submit }))),
-  startTest: (skillId: string) => json<TestStart>(request(`/me/tests/${skillId}/start`, send('POST'))),
-  submitTest: (attemptId: string, answers: Record<string, string>) => json<TestResult>(request(`/me/tests/attempts/${attemptId}/submit`, send('POST', { answers }))),
+  startTest: () => json<TestStart>(request('/me/tests/start', send('POST'))),
+  submitTest: (attemptId: string, answers: Record<string, string>, reason?: 'violations') => json<TestResult>(request(`/me/tests/attempts/${attemptId}/submit`, send('POST', { answers, reason }))),
+  reportViolation: (attemptId: string, type: string) => json<{ count: number; max: number; autoSubmit: boolean }>(request(`/me/tests/attempts/${attemptId}/violation`, send('POST', { type }))),
   getAttempt: (attemptId: string) => json<TestResult>(request(`/me/tests/attempts/${attemptId}`)),
   saveReflection: (r: Omit<Reflection, 'savedAt'>) => json<Reflection>(request('/me/reflection', send('PUT', r))),
   reset: () => json<MeSnapshot>(request('/me/reset', send('POST'))),
@@ -43,8 +46,8 @@ export const meApi = {
 
 export const teamApi = {
   list: () => json<{ members: TeamMember[] }>(request('/team')),
-  saveValidation: (empId: string, skillId: string, answers: Record<string, TaskAnswer>, comment: string, submit: boolean) =>
-    json<{ snapshot: MeSnapshot; score: number | null }>(request(`/team/${empId}/validation/${skillId}`, send('PUT', { answers, comment, submit }))),
+  saveEvaluation: (empId: string, answers: Record<string, TaskAnswer>, comments: Record<string, string>, submit: boolean) =>
+    json<{ snapshot: MeSnapshot }>(request('/team/' + empId + '/evaluation', send('PUT', { answers, comments, submit }))),
   remind: (empId: string) => json<{ remindedAt: string }>(request(`/team/${empId}/remind`, send('POST'))),
 }
 
@@ -75,5 +78,11 @@ export const api = {
   },
   async demoUsers(): Promise<DemoUser[]> {
     return (await request('/auth/demo')).json()
+  },
+  async realUsers(q: string): Promise<RealUser[]> {
+    return (await request(`/auth/real?q=${encodeURIComponent(q)}`)).json()
+  },
+  async realLogin(id: string): Promise<User> {
+    return ((await (await request('/auth/real-login', { method: 'POST', body: JSON.stringify({ id }) })).json()) as { user: User }).user
   },
 }

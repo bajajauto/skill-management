@@ -3,7 +3,7 @@ import { ArrowDownRight, ArrowRight, ArrowUpRight, Minus } from 'lucide-react'
 import { meApi } from '../../api'
 import { Button, Card, useToast } from '../../components/ui'
 import { useMe, usePublishedMe } from '../MeContext'
-import { SELF_LABEL, fmtDate, gapSources, managerScore, selfView, summarize, testScore } from '../logic'
+import { SELF_LABEL, fmtDate, fmtNum, gapSources, managerScore, outOf, selfView, summarize, testMeasure, testScore } from '../logic'
 import { NotPublished, PageHead } from '../shared'
 import type { PublishedMe } from '../types'
 
@@ -39,59 +39,77 @@ export function ReflectionPage() {
 
 /* -------------------------------- Growth -------------------------------- */
 
-function Delta({ now, before }: { now: number | null; before: number | null }) {
+/** How the change reads: "+1 task", "-2 points", or "No change". */
+function Delta({ now, before, unit }: { now: number | null; before: number | null; unit: [string, string] }) {
   if (now == null || before == null) return <span className="delta delta-flat">Awaiting result</span>
-  const d = Math.round(now - before)
-  const Icon = d > 1 ? ArrowUpRight : d < -1 ? ArrowDownRight : Minus
+  const d = Math.round((now - before) * 2) / 2
+  const dir = d > 0 ? 'up' : d < 0 ? 'down' : 'flat'
+  const Icon = d > 0 ? ArrowUpRight : d < 0 ? ArrowDownRight : Minus
   return (
-    <span className="delta" data-dir={d > 1 ? 'up' : d < -1 ? 'down' : 'flat'}>
-      <Icon size={14} /> {d > 0 ? '+' : ''}
-      {d} pts
+    <span className="delta" data-dir={dir}>
+      <Icon size={14} /> {d === 0 ? 'No change' : `${d > 0 ? '+' : '-'}${fmtNum(Math.abs(d))} ${Math.abs(d) === 1 ? unit[0] : unit[1]}`}
     </span>
   )
 }
 
-function PairBar({ label, before, now }: { label: string; before: number | null; now: number | null }) {
+/** Last cycle against now, both as a number out of the same maximum. */
+function PairBar({ label, before, now, max, unit }: { label: string; before: number | null; now: number | null; max: number | null; unit: [string, string] }) {
+  const show = (v: number | null) => (v == null || max == null ? '–' : outOf(v, max))
+  const width = (v: number | null) => (v == null || !max ? 0 : Math.min(1, v / max))
   return (
     <div className="pair">
       <span className="pair-label">{label}</span>
       <div className="pair-bars">
-        <div className="hbar hbar-before" title={`Last cycle: ${before ?? '–'}%`}>
-          <span style={{ transform: `scaleX(${(before ?? 0) / 100})` }} />
-          <em>{before == null ? '–' : `${Math.round(before)}%`}</em>
+        <div className="hbar hbar-before" title={`Last cycle: ${show(before)}`}>
+          <span style={{ transform: `scaleX(${width(before)})` }} />
+          <em>{show(before)}</em>
         </div>
-        <div className="hbar hbar-now" title={`Now: ${now ?? '–'}%`}>
-          <span style={{ transform: `scaleX(${(now ?? 0) / 100})` }} />
-          <em>{now == null ? '–' : `${Math.round(now)}%`}</em>
+        <div className="hbar hbar-now" title={`Now: ${show(now)}`}>
+          <span style={{ transform: `scaleX(${width(now)})` }} />
+          <em>{show(now)}</em>
         </div>
       </div>
-      <Delta now={now} before={before} />
+      <Delta now={now} before={before} unit={unit} />
     </div>
   )
 }
 
+const TASK: [string, string] = ['task', 'tasks']
+const POINT: [string, string] = ['point', 'points']
+
+/** One skill's manager and test results as numbers, with last cycle's worked out on the same scale. */
+function growthOf(c: PublishedMe['clusters'][number]) {
+  const mgrMax = c.manager.status === 'calibrated' && c.manager.applicable ? c.manager.applicable : null
+  const mgrNow = mgrMax != null ? c.manager.yes : null
+  const mgrBefore = mgrMax != null && c.previous.managerPct != null ? Math.round((c.previous.managerPct / 100) * mgrMax) : null
+
+  const t = c.test.latest ? testMeasure(c.test.latest) : null
+  const testBefore = t && c.previous.testPct != null ? Math.round(((c.previous.testPct / 100) * t.max) * 2) / 2 : null
+  const testUnit: [string, string] = c.test.latest && c.test.latest.possible != null ? POINT : ['question', 'questions']
+  return { mgrMax, mgrNow, mgrBefore, test: t, testBefore, testUnit }
+}
+
 function Growth({ m }: { m: PublishedMe }) {
-  const withBoth = m.clusters.filter((c) => c.test.latest?.pct != null)
-  const avgTest = withBoth.length ? withBoth.reduce((a, c) => a + ((c.test.latest!.pct ?? 0) - c.previous.testPct), 0) / withBoth.length : null
-  const mgr = m.clusters.filter((c) => c.manager.pct != null && c.previous.managerPct != null)
-  const avgMgr = mgr.length ? mgr.reduce((a, c) => a + ((c.manager.pct ?? 0) - (c.previous.managerPct ?? 0)), 0) / mgr.length : null
-  const improved = m.clusters.filter((c) => (c.manager.pct ?? 0) - (c.previous.managerPct ?? 0) > 1 || (c.test.latest?.pct ?? 0) - c.previous.testPct > 1).length
+  const rows = m.clusters.map((c) => ({ c, g: growthOf(c) }))
+  const mgrCompared = rows.filter(({ g }) => g.mgrNow != null && g.mgrBefore != null)
+  const testCompared = rows.filter(({ g }) => g.test != null && g.testBefore != null)
+  const mgrUp = mgrCompared.filter(({ g }) => (g.mgrNow as number) > (g.mgrBefore as number)).length
+  const testUp = testCompared.filter(({ g }) => (g.test!.value as number) > (g.testBefore as number)).length
+  const improved = rows.filter(({ g }) => ((g.mgrNow ?? 0) > (g.mgrBefore ?? Infinity)) || ((g.test?.value ?? 0) > (g.testBefore ?? Infinity))).length
 
   return (
     <Card title="Your growth" description={`Compared with ${m.previousCycle.name}.`}>
       <div className="tally">
-        <div className="tally-item" data-tone={avgMgr == null ? 'neutral' : avgMgr >= 0 ? 'good' : 'bad'}>
-          <strong>{avgMgr == null ? '–' : `${avgMgr > 0 ? '+' : ''}${Math.round(avgMgr)}`}</strong>
-          <span>Avg manager validation (pts)</span>
+        <div className="tally-item" data-tone={mgrCompared.length && mgrUp === 0 ? 'bad' : 'good'}>
+          <strong>{mgrCompared.length ? outOf(mgrUp, mgrCompared.length) : '–'}</strong>
+          <span>Skills with a higher manager score</span>
         </div>
-        <div className="tally-item" data-tone={avgTest == null ? 'neutral' : avgTest >= 0 ? 'good' : 'bad'}>
-          <strong>{avgTest == null ? '–' : `${avgTest > 0 ? '+' : ''}${Math.round(avgTest)}`}</strong>
-          <span>Avg test score (pts)</span>
+        <div className="tally-item" data-tone={testCompared.length && testUp === 0 ? 'bad' : 'good'}>
+          <strong>{testCompared.length ? outOf(testUp, testCompared.length) : '–'}</strong>
+          <span>Skills with a higher test score</span>
         </div>
         <div className="tally-item" data-tone="good">
-          <strong>
-            {improved}/{m.clusters.length}
-          </strong>
+          <strong>{outOf(improved, m.clusters.length)}</strong>
           <span>Skills improved</span>
         </div>
       </div>
@@ -104,19 +122,22 @@ function Growth({ m }: { m: PublishedMe }) {
         </span>
       </div>
       <ul className="growth-list">
-        {m.clusters.map((c) => (
+        {rows.map(({ c, g }) => (
           <li key={c.id}>
             <p className="strong">{c.name}</p>
-            <PairBar label="Manager validation" before={c.previous.managerPct} now={c.manager.pct} />
-            <PairBar label="Objective test" before={c.previous.testPct} now={c.test.latest?.pct ?? null} />
+            <PairBar label="Manager evaluation" before={g.mgrBefore} now={g.mgrNow} max={g.mgrMax} unit={TASK} />
+            <PairBar label="Objective test" before={g.testBefore} now={g.test?.value ?? null} max={g.test?.max ?? null} unit={g.testUnit} />
           </li>
         ))}
       </ul>
-      <p className="field-hint">Previous-cycle figures here are sample data until your real history is migrated.</p>
+      {mgrCompared.length + testCompared.length === 0 ? (
+        <p className="field-hint">There are no previous-cycle results to compare with yet.</p>
+      ) : (
+        <p className="field-hint">Previous-cycle figures here are sample data until your real history is migrated.</p>
+      )}
     </Card>
   )
 }
-
 /* ---------------------------- Self vs evidence ---------------------------- */
 
 function ScoreBar({ label, value, max = 3 }: { label: string; value: number | null; max?: number }) {
@@ -135,7 +156,7 @@ const VIEW_COPY = {
   over: 'You rated yourself higher than the evidence suggests. Worth asking your manager what they look for.',
   under: 'You rated yourself lower than the evidence suggests. You may be more capable than you give yourself credit for.',
   aligned: 'Your view and the evidence line up well.',
-  unknown: 'We need your self rating, manager validation and test to compare.',
+  unknown: 'We need your self rating, manager evaluation and test to compare.',
 } as const
 
 function SelfVsEvidence({ m }: { m: PublishedMe }) {
@@ -168,7 +189,7 @@ function Focus({ m }: { m: PublishedMe }) {
   const s = summarize(m)
   const items = s.gaps.map(({ c }) => ({ c, src: gapSources(c, m.scoring), todo: c.tasks.filter((t) => t.managerAnswer === 'no') }))
   return (
-    <Card title="Where to focus" description="Skills where your manager validation or test result is below the target.">
+    <Card title="Where to focus" description="Skills where your manager evaluation or test result is below the target.">
       {items.length === 0 ? (
         <p className="callout callout-good">
           {s.incomplete.length ? 'No gaps so far. Some results are still to come, so check back once they are in.' : 'No development gaps right now. Keep it up.'}

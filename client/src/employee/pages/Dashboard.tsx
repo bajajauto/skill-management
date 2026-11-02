@@ -1,6 +1,6 @@
 import { ArrowRight, Check, CircleDashed } from 'lucide-react'
 import { usePublishedMe, useMe } from '../MeContext'
-import { daysUntil, fmtDate, managerScore, summarize, testScore } from '../logic'
+import { daysUntil, evaluationOf, fmtDate, managerScore, summarize, testScore } from '../logic'
 import { NotPublished, PageHead, ProgressBar, ScoreChip, StatusBadge } from '../shared'
 import { Badge, Card } from '../../components/ui'
 import type { MeEmployee } from '../types'
@@ -20,7 +20,7 @@ export function Dashboard() {
             <div className="assess-grid assess-grid-2">
               {[
                 ['Self assessment', 'Rate your confidence in each skill. For your own reflection only.'],
-                ['Objective tests', 'A short multiple-choice test for each skill. One attempt per skill.'],
+                ['Objective test', 'One multiple-choice test with a section for each skill. One attempt this cycle.'],
               ].map(([title, body]) => (
                 <section key={title} className="card assess-card">
                   <div className="row-between">
@@ -42,21 +42,22 @@ export function Dashboard() {
   }
   const m = pub.me
   const s = summarize(m)
+  const ev = evaluationOf(m)
   const days = daysUntil(m.cycle.due)
 
   // The single most useful thing to do next.
   const next = !s.selfDone
     ? { text: 'Complete your self assessment', sub: `${s.selfDraftCount} of ${m.clusters.length} skills rated`, href: '#/assessments/self' }
-    : s.testsLeft.length
-      ? { text: `Take your ${s.testsLeft[0].name} test`, sub: `${s.testsLeft.length} test${s.testsLeft.length > 1 ? 's' : ''} left this cycle`, href: `#/assessments/tests/${s.testsLeft[0].id}` }
+    : s.testToTake
+      ? { text: s.testStarted ? 'Finish your objective test' : 'Take your objective test', sub: `One test with ${m.test.skills.length} sections, one per skill`, href: '#/assessments/tests' }
       : s.gaps.length
         ? { text: 'Review your development areas', sub: `${s.gaps.length} skill${s.gaps.length > 1 ? 's' : ''} to focus on`, href: '#/reflection' }
         : { text: 'See your skill card', sub: 'A summary you can share', href: '#/card' }
 
   const steps = [
     { label: 'Self assessment', done: s.selfDone, detail: s.selfDone ? 'Submitted' : `${s.selfDraftCount}/${m.clusters.length} rated`, href: '#/assessments/self' },
-    { label: 'Manager validation', done: s.managerDone === m.clusters.length, detail: `${s.managerDone}/${m.clusters.length} validated`, href: '#/profile' },
-    { label: 'Objective tests', done: s.testsLeft.length === 0 && s.testableCount > 0, detail: `${s.testsTaken}/${m.clusters.length} taken`, href: '#/assessments/tests' },
+    { label: 'Manager evaluation', done: ev.state === 'done', detail: ev.state === 'done' ? 'Done' : ev.state === 'progress' ? 'In progress' : 'Not started', href: '#/profile' },
+    { label: 'Objective test', done: s.testDone && s.testableCount > 0, detail: s.testDone ? 'Taken' : s.testStarted ? 'In progress' : 'Not taken', href: '#/assessments/tests' },
   ]
 
   return (
@@ -102,16 +103,16 @@ export function Dashboard() {
           </section>
           <section className="card assess-card">
             <div className="row-between">
-              <h2 className="card-title">Objective tests</h2>
-              <Badge tone={s.testsLeft.length === 0 && s.testableCount > 0 ? 'good' : s.testsTaken ? 'warn' : 'neutral'}>
-                {s.testsLeft.length === 0 && s.testableCount > 0 ? 'Complete' : s.testsTaken ? 'In progress' : 'Not started'}
+              <h2 className="card-title">Objective test</h2>
+              <Badge tone={s.testDone && s.testableCount > 0 ? 'good' : s.testStarted ? 'warn' : 'neutral'}>
+                {s.testDone && s.testableCount > 0 ? 'Complete' : s.testStarted ? 'In progress' : 'Not started'}
               </Badge>
             </div>
-            <p className="muted">A short multiple-choice test for each skill. One attempt per skill.</p>
+            <p className="muted">One multiple-choice test with a section for each skill. One attempt this cycle.</p>
             <ProgressBar value={s.testsTaken} max={m.clusters.length} label="Objective test progress" />
-            <span className="muted">{s.testsTaken} of {m.clusters.length} tests taken</span>
-            <a className="step-cta" href={s.testsLeft.length ? `#/assessments/tests/${s.testsLeft[0].id}` : '#/assessments/tests'}>
-              {s.testsLeft.length ? 'Take a test' : 'View results'} <ArrowRight size={14} />
+            <span className="muted">{s.testsTaken} of {m.clusters.length} skill sections scored</span>
+            <a className="step-cta" href="#/assessments/tests">
+              {s.testToTake ? (s.testStarted ? 'Resume test' : 'Take the test') : 'View results'} <ArrowRight size={14} />
             </a>
           </section>
         </div>
@@ -131,10 +132,9 @@ export function Dashboard() {
             </ul>
           </Card>
 
-          <Card title="Where you stand" description="Based on manager validation and your objective tests.">
+          <Card title="Where you stand" description="Based on manager evaluation and your objective test.">
             <div className="tally">
               <Tally n={s.cleared.length} label="Cleared" tone="good" />
-              <Tally n={s.open.length} label="In progress" tone="warn" />
               <Tally n={s.gaps.length} label="Gaps" tone="bad" />
               <Tally n={s.incomplete.length} label="Awaiting" tone="neutral" />
             </div>

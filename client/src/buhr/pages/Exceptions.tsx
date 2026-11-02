@@ -50,7 +50,7 @@ export function BuExceptions({ data }: { data: PublishedBu }) {
 
       <Card
         title={`Not started (${notStarted.length})`}
-        description="No self assessment, test or validation yet."
+        description="No self assessment, test or evaluation yet."
         action={
           notStarted.length > 0 && (
             <Button size="sm" variant="primary" onClick={() => send(notStarted.map((p) => p.id), `${notStarted.length} ${notStarted.length === 1 ? 'person' : 'people'}`)}>

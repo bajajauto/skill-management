@@ -1,4 +1,5 @@
 // Demo-only employee data. Replace with HRMS sync (profile) and the manager / calibration workflow (scores).
+import { realProfile } from './realData.js'
 
 export const EMPLOYEES = {
   u1: {
@@ -17,8 +18,8 @@ export const EMPLOYEES = {
     joined: '2021-06-14',
     manager: 'Vikram Shah',
     skipManager: 'Rohan Iyer',
-    // Clusters whose manager validation is already done. Any other cluster is waiting on the manager.
-    validated: ['cnc', 'quality', 'lean', 'safety'],
+    // Clusters whose manager evaluation is already done. Any other cluster is waiting on the manager.
+    validated: ['cnc', 'quality', 'lean', 'tpm', 'safety'],
   },
   u2: {
     organization: 'BAL',
@@ -62,6 +63,9 @@ export const TEAMS = { u2: ['u1', 'e2', 'e3', 'e4', 'e5', 'e6'], u3: ['e7', 'e8'
 /** Users who can switch to the BUHR view: they see the whole business unit they belong to. */
 export const BUHRS = ['u3']
 
+/** The business units each BUHR looks after, within their own organization. One BUHR can have several. */
+export const BUHR_SCOPE = { u3: ['Powertrain', 'Commuter Motorcycles', 'Exports'] }
+
 const mockProfile = (p) => ({
   organization: 'BAL',
   jobLevel: 'EX',
@@ -93,7 +97,7 @@ export const ROSTER = {
   e4: {
     profile: mockProfile({ employeeId: 'BA-22105', name: 'Arjun Patil', email: 'arjun.patil@bajajauto.co.in', designation: 'Graduate Engineer Trainee', jobProfile: 'CNC Manufacturing Engineer', joined: '2026-07-01' }),
     self: 'draft',
-    tests: { safety: 57 },
+    tests: {},
     validated: [],
   },
   e5: {
@@ -118,7 +122,7 @@ export const ROSTER = {
   e8: {
     profile: mockProfile({ employeeId: 'BA-21702', name: 'Manoj Bhosale', email: 'manoj.bhosale@bajajauto.co.in', designation: 'Talent Development Executive', jobProfile: 'Talent Development Executive', function: 'Human Resources', manager: 'Priya Nair', skipManager: 'Meera Kulkarni', joined: '2023-09-04' }),
     self: 'draft',
-    tests: { safety: 61 },
+    tests: {},
     validated: [],
   },
   e9: {
@@ -145,15 +149,20 @@ const PROFILES = {
 }
 // `diligence` is how reliably the manager completes validations, so some teams are visibly behind.
 const GEN_MANAGERS = [
-  { name: 'Suresh Kamat', function: 'Manufacturing Engineering', location: 'Chakan, Pune', skip: 'Anita Deshmukh', diligence: 0.85, size: 6 },
-  { name: 'Neha Joshi', function: 'Quality Assurance', location: 'Chakan, Pune', skip: 'Anita Deshmukh', diligence: 0.6, size: 5 },
-  { name: 'Rajesh Pawar', function: 'Plant Maintenance', location: 'Waluj, Aurangabad', skip: 'Mohan Bhide', diligence: 0.3, size: 5 },
-  { name: 'Kavita Rao', function: 'Supply Chain', location: 'Waluj, Aurangabad', skip: 'Mohan Bhide', diligence: 0.9, size: 4 },
-  { name: 'Sanjay Gupta', function: 'Assembly', location: 'Pantnagar', skip: 'Deepak Sinha', diligence: 0.5, size: 6 },
-  { name: 'Pooja Mehta', function: 'R&D Powertrain', location: 'Akurdi, Pune', skip: 'Deepak Sinha', diligence: 0.75, size: 4 },
+  { name: 'Suresh Kamat', businessUnit: 'Powertrain', function: 'Manufacturing Engineering', location: 'Chakan, Pune', skip: 'Anita Deshmukh', diligence: 0.85, size: 6 },
+  { name: 'Neha Joshi', businessUnit: 'Powertrain', function: 'Quality Assurance', location: 'Chakan, Pune', skip: 'Anita Deshmukh', diligence: 0.6, size: 5 },
+  { name: 'Rajesh Pawar', businessUnit: 'Powertrain', function: 'Plant Maintenance', location: 'Waluj, Aurangabad', skip: 'Mohan Bhide', diligence: 0.3, size: 5 },
+  { name: 'Kavita Rao', businessUnit: 'Powertrain', function: 'Supply Chain', location: 'Waluj, Aurangabad', skip: 'Mohan Bhide', diligence: 0.9, size: 4 },
+  { name: 'Sanjay Gupta', businessUnit: 'Powertrain', function: 'Assembly', location: 'Pantnagar', skip: 'Deepak Sinha', diligence: 0.5, size: 6 },
+  { name: 'Pooja Mehta', businessUnit: 'Powertrain', function: 'R&D Powertrain', location: 'Akurdi, Pune', skip: 'Deepak Sinha', diligence: 0.75, size: 4 },
+  { name: 'Ravi Menon', businessUnit: 'Commuter Motorcycles', function: 'Manufacturing Engineering', location: 'Waluj, Aurangabad', skip: 'Mohan Bhide', diligence: 0.8, size: 5 },
+  { name: 'Shalini Ghosh', businessUnit: 'Commuter Motorcycles', function: 'Quality Assurance', location: 'Waluj, Aurangabad', skip: 'Mohan Bhide', diligence: 0.55, size: 5 },
+  { name: 'Tarun Bhatia', businessUnit: 'Commuter Motorcycles', function: 'Assembly', location: 'Pantnagar', skip: 'Deepak Sinha', diligence: 0.4, size: 5 },
+  { name: 'Meenal Apte', businessUnit: 'Exports', function: 'Supply Chain', location: 'Akurdi, Pune', skip: 'Deepak Sinha', diligence: 0.7, size: 4 },
+  { name: 'Farid Khan', businessUnit: 'Exports', function: 'Quality Assurance', location: 'Akurdi, Pune', skip: 'Deepak Sinha', diligence: 0.45, size: 4 },
 ]
 // A few people the campaign can't process normally (governance exceptions).
-const EXCEPTIONS = { g07: 'Missing skip manager', g15: 'No job profile mapped', g23: 'On long leave, workflow paused' }
+const EXCEPTIONS = { g07: 'Missing skip manager', g15: 'No job profile mapped', g23: 'On long leave, workflow paused', g38: 'No job profile mapped', g47: 'Missing skip manager' }
 
 const clamp01 = (v) => Math.max(0.05, Math.min(1, v))
 
@@ -164,15 +173,18 @@ function buildGenerated() {
     for (let i = 0; i < m.size; i++) {
       n++
       const id = `g${String(n).padStart(2, '0')}`
-      const name = `${FIRST[(n * 7) % FIRST.length]} ${LAST[(n * 4 + 3) % LAST.length]}`
+      // The offset keeps names unique past the point where the first/last name cycles would otherwise repeat.
+      const name = `${FIRST[(n * 7) % FIRST.length]} ${LAST[(n * 4 + 3 + Math.floor(n / 30) * 5) % LAST.length]}`
       const p = clamp01(m.diligence + (rand(`${id}|p`) - 0.5) * 0.5)
       const strength = rand(`${id}|str`)
       const r = rand(`${id}|self`)
       const tests = {}
-      for (const k of SKILL_KEYS) {
-        if (rand(`${id}|${k}|t`) < p * 0.95) tests[k] = Math.round(68 + 32 * (0.4 * rand(`${id}|${k}|pct`) + 0.6 * strength))
-      }
-      const validated = SKILL_KEYS.filter((k) => rand(`${id}|${k}|v`) < m.diligence)
+      // The objective test is one module: a person has either taken it (every skill gets a result) or not.
+      if (rand(`${id}|test`) < p * 0.95) {
+        for (const k of SKILL_KEYS) tests[k] = Math.round(68 + 32 * (0.4 * rand(`${id}|${k}|pct`) + 0.6 * strength))
+      }      // A manager evaluates a whole person: done for every skill, part-way through, or not started.
+      const evalDraw = rand(`${id}|eval`)
+      const validated = evalDraw < m.diligence ? [...SKILL_KEYS] : evalDraw < m.diligence + 0.12 ? SKILL_KEYS.slice(0, 3) : []
       out[id] = {
         profile: mockProfile({
           employeeId: `BA-${30000 + n * 17}`,
@@ -181,6 +193,7 @@ function buildGenerated() {
           designation: DESIGNATIONS[(n * 3) % DESIGNATIONS.length],
           jobProfile: PROFILES[m.function],
           function: m.function,
+          businessUnit: m.businessUnit,
           location: m.location,
           manager: m.name,
           skipManager: EXCEPTIONS[id] === 'Missing skip manager' ? '' : m.skip,
@@ -200,15 +213,20 @@ export const GENERATED = buildGenerated()
 /** Everyone who has no login but exists in the demo: hand-written reports plus the generated population. */
 export const PEOPLE = { ...ROSTER, ...GENERATED }
 
-export const profileOf = (id) => EMPLOYEES[id] ?? PEOPLE[id]?.profile ?? null
+export const profileOf = (id) => EMPLOYEES[id] ?? PEOPLE[id]?.profile ?? realProfile(id)
 
 const norm = (s) => String(s ?? '').trim().toLowerCase()
 /** Every person in an organization + business unit, logins and demo people alike. */
-export const buPeopleIds = (organization, businessUnit) =>
-  [...Object.keys(EMPLOYEES), ...Object.keys(PEOPLE)].filter((id) => {
+export const buPeopleIds = (organization, businessUnit) => scopePeopleIds(organization, [businessUnit])
+
+/** Every person in an organization whose business unit is one of the given ones, logins and demo people alike. */
+export const scopePeopleIds = (organization, businessUnits) => {
+  const units = new Set(businessUnits.map(norm))
+  return [...Object.keys(EMPLOYEES), ...Object.keys(PEOPLE)].filter((id) => {
     const p = profileOf(id)
-    return p && norm(p.organization) === norm(organization) && norm(p.businessUnit) === norm(businessUnit)
+    return p && norm(p.organization) === norm(organization) && units.has(norm(p.businessUnit))
   })
+}
 
 export const CYCLE = { id: 'c-h2-fy26', name: 'H2 FY26 Skills Cycle', opens: '2026-10-01', due: '2026-11-15' }
 export const PREVIOUS_CYCLE = { id: 'c-h1-fy26', name: 'H1 FY26 Skills Cycle', closed: '2026-04-30' }

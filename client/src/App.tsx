@@ -16,7 +16,7 @@ import type { AdminSection } from './types'
 const COHORT_VIEWS: { key: CohortView; label: string; icon: LucideIcon }[] = [
   { key: 'all', label: 'All', icon: LayoutList },
   { key: 'drafts', label: 'Drafts', icon: FilePen },
-  { key: 'manage', label: 'Manage cohorts', icon: Settings2 },
+  { key: 'manage', label: 'Manage Cohorts', icon: Settings2 },
 ]
 
 type Route = { page: 'home' } | { page: 'cohorts'; view: CohortView } | { page: 'admin'; section: AdminSection }
@@ -98,7 +98,7 @@ function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
             <>
               <a href="#/admin/cohorts/all" className="nav-item nav-group-title" data-active={route.page === 'cohorts'} aria-expanded={route.page === 'cohorts'}>
                 <AppIcon name="department" size={30} />
-                Live cohorts
+                Live Cohorts
                 {live.length > 0 && <span className="nav-count nav-count-good">{live.length}</span>}
               </a>
               {route.page === 'cohorts' && (
@@ -117,7 +117,7 @@ function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
                     <span className="sub-icon">
                       <Plus size={15} aria-hidden />
                     </span>
-                    New cohort
+                    New Cohort
                   </button>
                 </div>
               )}
@@ -150,7 +150,7 @@ function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
             <p className="empty-title">{cohorts ? 'No cohort to set up yet' : 'Loading…'}</p>
             {cohorts && (
               <div className="empty-body">
-                Skill Framework Setup works on a cohort. Create one first.
+                Skill framework setup works on a cohort. Create one first.
                 <div className="btn-row center">
                   <button type="button" className="btn btn-primary" disabled={newCohort.busy} onClick={newCohort.start}>
                     <Plus size={14} /> New cohort

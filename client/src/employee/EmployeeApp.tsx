@@ -26,12 +26,14 @@ import { TeamProvider, useTeam } from '../team/TeamContext'
 import { TeamPage, type TeamRoute } from '../team/TeamPage'
 import { TeamCardDetail, TeamCards } from '../team/pages/TeamCards'
 import { BuProvider, useBu } from '../buhr/BuContext'
+import { scopeLabel } from '../buhr/logic'
+import { evaluationOf } from './logic'
 import { BuPage, type BuRoute } from '../buhr/BuPage'
 
 export type EmpRoute =
   | { page: 'dashboard' }
   | { page: 'profile' }
-  | { page: 'assessments'; tab: 'overview' | 'self' | 'tests'; skillId?: string }
+  | { page: 'assessments'; tab: 'overview' | 'self' | 'tests' }
   | { page: 'reflection' }
   | { page: 'card' }
   | { page: 'team'; team: TeamRoute }
@@ -39,24 +41,24 @@ export type EmpRoute =
   | { page: 'bu'; bu: BuRoute }
 
 /**
- * Hash routes: #/, #/profile, #/assessments[/self|/tests[/<skillId>]], #/reflection, #/card,
- * for managers #/team[/validations|/tracking|/member/<id>|/validate/<id>/<skillId>],
+ * Hash routes: #/, #/profile, #/assessments[/self|/tests], #/reflection, #/card,
+ * for managers #/team[/validations|/tracking|/member/<id>|/validate/<id>],
  * and for BUHR #/bu[/completion|/skills|/employees|/exceptions|/person/<id>]
  */
 function parse(): EmpRoute {
-  const [page, a, b, c] = location.hash.replace(/^#\/?/, '').split('/')
+  const [page, a, b] = location.hash.replace(/^#\/?/, '').split('/')
   switch (page) {
     case 'profile':
       return { page: 'profile' }
     case 'assessments':
-      return a === 'self' ? { page: 'assessments', tab: 'self' } : a === 'tests' ? { page: 'assessments', tab: 'tests', skillId: b } : { page: 'assessments', tab: 'overview' }
+      return a === 'self' ? { page: 'assessments', tab: 'self' } : a === 'tests' ? { page: 'assessments', tab: 'tests' } : { page: 'assessments', tab: 'overview' }
     case 'reflection':
       return { page: 'reflection' }
     case 'card':
       return { page: 'card' }
     case 'team':
       if (a === 'member' && b) return { page: 'team', team: { view: 'member', empId: b } }
-      if (a === 'validate' && b && c) return { page: 'team', team: { view: 'validate', empId: b, skillId: c } }
+      if (a === 'validate' && b) return { page: 'team', team: { view: 'validate', empId: b } }
       return { page: 'team', team: { view: a === 'validations' ? 'validations' : a === 'tracking' ? 'tracking' : 'overview' } }
     case 'cards':
       return { page: 'cards', id: a }
@@ -70,28 +72,28 @@ function parse(): EmpRoute {
 
 const NAV: { page: EmpRoute['page']; href: string; label: string; icon: LucideIcon }[] = [
   { page: 'dashboard', href: '#/', label: 'Dashboard', icon: LayoutDashboard },
-  { page: 'profile', href: '#/profile', label: 'Skill profile', icon: UserRound },
-  { page: 'assessments', href: '#/assessments', label: 'My assessments', icon: ClipboardCheck },
+  { page: 'profile', href: '#/profile', label: 'Skill Profile', icon: UserRound },
+  { page: 'assessments', href: '#/assessments', label: 'My Assessments', icon: ClipboardCheck },
   { page: 'reflection', href: '#/reflection', label: 'Reflection', icon: Sparkles },
-  { page: 'card', href: '#/card', label: 'Skill card', icon: BadgeCheck },
+  { page: 'card', href: '#/card', label: 'Skill Card', icon: BadgeCheck },
 ]
 
 const BU_NAV: { view: BuRoute['view']; href: string; label: string; icon: LucideIcon }[] = [
   { view: 'overview', href: '#/bu', label: 'Overview', icon: LayoutDashboard },
   { view: 'completion', href: '#/bu/completion', label: 'Completion', icon: ListChecks },
-  { view: 'skills', href: '#/bu/skills', label: 'Skill gaps', icon: Target },
+  { view: 'skills', href: '#/bu/skills', label: 'Skill Gaps', icon: Target },
   { view: 'employees', href: '#/bu/employees', label: 'Employees', icon: UsersRound },
   { view: 'exceptions', href: '#/bu/exceptions', label: 'Exceptions', icon: AlertTriangle },
-  { view: 'cards', href: '#/bu/cards', label: 'Skill cards', icon: Contact },
+  { view: 'cards', href: '#/bu/cards', label: 'Skill Cards', icon: Contact },
 ]
 
 /** Count of validations waiting on the manager, shown beside "My team". */
 function TeamBadge() {
   const { members } = useTeam()
-  const n =
-    members?.reduce((a, m) => a + (m.snapshot.published ? m.snapshot.clusters.filter((c) => c.manager.status === 'pending').length : 0), 0) ?? 0
+  // One evaluation per person, so this counts the people still waiting on one.
+  const n = members?.filter((m) => m.snapshot.published && evaluationOf(m.snapshot).state !== 'done').length ?? 0
   return n > 0 ? (
-    <span className="nav-count" title={`${n} validation${n === 1 ? '' : 's'} waiting`}>
+    <span className="nav-count" title={`${n} evaluation${n === 1 ? '' : 's'} waiting`}>
       {n}
     </span>
   ) : null
@@ -100,7 +102,7 @@ function TeamBadge() {
 /** Sits above everything for a BUHR: switches between their own manager screens and the business-unit tracking. */
 function ViewRibbon({ inBu }: { inBu: boolean }) {
   const { data } = useBu()
-  const scope = data ? `${data.scope.organization} · ${data.scope.businessUnit}` : ''
+  const scope = data ? scopeLabel(data.scope) : ''
   return (
     <div className="ribbon" data-mode={inBu ? 'bu' : 'manager'} role="region" aria-label="Switch view">
       <span className="ribbon-label">
@@ -114,7 +116,7 @@ function ViewRibbon({ inBu }: { inBu: boolean }) {
           BUHR view
         </a>
       </div>
-      <span className="ribbon-scope">{inBu ? `Whole business unit · ${scope}` : 'Your own development and your direct reports'}</span>
+      <span className="ribbon-scope">{inBu ? `Everyone in scope · ${scope}` : 'Your own development and your direct reports'}</span>
     </div>
   )
 }
@@ -151,7 +153,7 @@ export function EmployeeApp({ user, onSignOut }: { user: User; onSignOut: () => 
           <nav className="sidenav" aria-label="Main">
             {inBu ? (
               <>
-                <p className="nav-label">Business unit</p>
+                <p className="nav-label">Business Units</p>
                 {BU_NAV.map((n) => (
                   <a key={n.view} href={n.href} className="nav-item" aria-current={route.page === 'bu' && (route.bu.view === n.view || (n.view === 'employees' && route.bu.view === 'person') || (n.view === 'cards' && route.bu.view === 'card')) ? 'page' : undefined}>
                     <n.icon size={20} aria-hidden />
@@ -161,7 +163,7 @@ export function EmployeeApp({ user, onSignOut }: { user: User; onSignOut: () => 
               </>
             ) : (
               <>
-                {hasTeam && <p className="nav-label">My development</p>}
+                {hasTeam && <p className="nav-label">My Development</p>}
                 {NAV.map((n) => (
                   <a key={n.page} href={n.href} className="nav-item" aria-current={route.page === n.page ? 'page' : undefined}>
                     <n.icon size={20} aria-hidden />
@@ -173,12 +175,12 @@ export function EmployeeApp({ user, onSignOut }: { user: User; onSignOut: () => 
                     <p className="nav-label">Team</p>
                     <a href="#/team" className="nav-item" aria-current={route.page === 'team' ? 'page' : undefined}>
                       <UsersRound size={20} aria-hidden />
-                      My team
+                      My Team
                       <TeamBadge />
                     </a>
                     <a href="#/cards" className="nav-item" aria-current={route.page === 'cards' ? 'page' : undefined}>
                       <Contact size={20} aria-hidden />
-                      Team skill cards
+                      Team Skill Cards
                     </a>
                   </>
                 )}
@@ -200,7 +202,7 @@ export function EmployeeApp({ user, onSignOut }: { user: User; onSignOut: () => 
           <div className="page" key={route.page + (route.page === 'assessments' ? route.tab : route.page === 'team' ? route.team.view : route.page === 'bu' ? route.bu.view : route.page === 'cards' ? (route.id ?? 'list') : '')}>
             {route.page === 'dashboard' && <Dashboard />}
             {route.page === 'profile' && <SkillProfile />}
-            {route.page === 'assessments' && <Assessments tab={route.tab} skillId={route.skillId} />}
+            {route.page === 'assessments' && <Assessments tab={route.tab} />}
             {route.page === 'reflection' && <ReflectionPage />}
             {route.page === 'card' && <SkillCard />}
             {route.page === 'team' && hasTeam && <TeamPage route={route.team} />}

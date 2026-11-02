@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import type { AppState, Config, Level, Question, Reviewed, SkillNode, StructureKey } from './types'
 import { emptyState, sampleState } from './lib/defaults'
 import { cohortApi } from './api'
+import { normalizeEvidence } from './lib/evidence'
 
 export type Action =
   | { type: 'hydrate'; state: AppState }
@@ -134,7 +135,7 @@ function withDefaults(parsed: AppState): AppState {
   const base = emptyState()
   // Cohorts that were set up before sign-off existed are treated as signed off if they were already published.
   const reviewed: Reviewed = parsed.config?.reviewed ?? { framework: parsed.publication != null, scoring: parsed.publication != null }
-  return { ...base, ...parsed, config: { ...base.config, ...parsed.config, reviewed, scoring: { ...base.config.scoring, ...parsed.config?.scoring } } }
+  return { ...base, ...parsed, config: { ...base.config, ...parsed.config, reviewed, evidence: normalizeEvidence(parsed.config?.evidence), scoring: { ...base.config.scoring, ...parsed.config?.scoring } } }
 }
 
 export type SaveStatus = 'saved' | 'saving' | 'error'

@@ -1,8 +1,9 @@
 import { Router } from 'express'
 import { readDoc, writeDoc } from '../storage.js'
 import { TEAMS } from '../lib/demoEmployee.js'
-import { buildSnapshot, clustersFor, getEmployeeFramework, loadValidations, managerFromAnswers, saveValidations } from '../lib/employeeData.js'
-import { percentToScore } from '../lib/demoEmployee.js'
+import { realTeam } from '../lib/realData.js'
+import { buildSnapshot, clustersFor, getEmployeeFramework, managerFromAnswers, saveValidations } from '../lib/employeeData.js'
+import { commentRequired, describeEvidence, normalizeEvidence } from '../lib/evidence.js'
 
 export const teamRouter = Router()
 
@@ -11,9 +12,10 @@ const fail = (status, message) => Object.assign(new Error(message), { status, ex
 // Demo identity: the client sends the signed-in user's id. Real auth must replace this.
 teamRouter.use((req, _res, next) => {
   const id = req.get('x-user-id')
-  if (!id || !TEAMS[id]) return next(fail(403, 'You do not manage a team.'))
+  const team = id ? (TEAMS[id] ?? realTeam(id)) : null
+  if (!team) return next(fail(403, 'You do not manage a team.'))
   req.userId = id
-  req.team = TEAMS[id]
+  req.team = team
   next()
 })
 
@@ -37,44 +39,52 @@ teamRouter.get('/:empId', async (req, res) => {
   res.json({ id, remindedAt: reminders[id] ?? null, snapshot: await buildSnapshot(id) })
 })
 
-/* ---------------------- Task-level manager validation ---------------------- */
+/* ------------------------- Manager evaluation ------------------------- */
 
-teamRouter.put('/:empId/validation/:skillId', async (req, res) => {
+// One evaluation per employee. It holds a section for every skill at their level, each with its own tasks, and each
+// section is scored on its own, exactly as the separate per-skill evaluations were. Submitting needs every section
+// complete; a draft can be saved at any point.
+teamRouter.put('/:empId/evaluation', async (req, res) => {
   const empId = await member(req, req.params.empId)
   const fw = await getEmployeeFramework(empId)
   if (!fw) throw fail(409, 'The framework is not published yet.')
   const setup = fw.state
   const snap = await buildSnapshot(empId)
-  const cluster = snap.clusters.find((c) => c.id === req.params.skillId)
-  if (!cluster) throw fail(404, 'That skill is not part of this person\'s current level.')
+  if (!snap.clusters.length) throw fail(409, 'There are no skills to evaluate at this person\'s level.')
 
-  const taskIds = clustersFor(setup, snap.currentLevelId).find((c) => c.skill.id === cluster.id)?.tasks.map((t) => t.id) ?? []
+  const sections = clustersFor(setup, snap.currentLevelId, snap.employee.jobProfile).map(({ skill, tasks }) => ({ id: skill.id, name: skill.name, taskIds: tasks.map((t) => t.id) }))
   const incoming = req.body?.answers ?? {}
-  const answers = {}
-  for (const id of taskIds) {
-    const a = incoming[id]
-    if (a == null) continue
-    if (!['yes', 'no', 'na'].includes(a)) throw fail(400, 'Each task must be Yes, No or Not applicable.')
-    answers[id] = a
-  }
-  const comment = String(req.body?.comment ?? '').slice(0, 2000).trim()
+  const comments = req.body?.comments ?? {}
   const submit = req.body?.submit === true
+  const rule = normalizeEvidence(setup.config.evidence)
+  const at = new Date().toISOString()
 
-  if (submit) {
-    if (taskIds.some((id) => !answers[id])) throw fail(400, 'Answer every task before submitting.')
-    const result = managerFromAnswers(taskIds, answers, setup.config.scoring.manager)
-    if (!result.applicable) throw fail(400, 'At least one task must apply.')
-    const rule = setup.config.evidence
-    if (rule === 'always' && !comment) throw fail(400, 'A comment is required.')
-    if (rule === 'on-negative' && result.original === 1 && !comment) throw fail(400, 'A comment is required when the rating is in the lowest band.')
+  const records = {}
+  for (const sec of sections) {
+    const answers = {}
+    for (const id of sec.taskIds) {
+      const a = incoming[id]
+      if (a == null) continue
+      if (!['yes', 'no', 'na'].includes(a)) throw fail(400, 'Each task must be Yes, No or Not applicable.')
+      answers[id] = a
+    }
+    const comment = String(comments[sec.id] ?? '').slice(0, 2000).trim()
+
+    if (submit) {
+      if (sec.taskIds.some((id) => !answers[id])) throw fail(400, `${sec.name}: answer every task before submitting.`)
+      const result = managerFromAnswers(sec.taskIds, answers, setup.config.scoring.manager)
+      if (!result.applicable) throw fail(400, `${sec.name}: at least one task must apply.`)
+      if (commentRequired(rule, result.original) && !comment) {
+        throw fail(400, `${sec.name}: ${rule.always ? 'a comment is required.' : `a comment is ${describeEvidence(rule)}.`}`)
+      }
+    }
+    if (submit || Object.keys(answers).length || comment) records[sec.id] = { status: submit ? 'submitted' : 'draft', answers, comment, at, by: req.userId }
   }
 
-  const all = await loadValidations(empId)
-  all[cluster.id] = { status: submit ? 'submitted' : 'draft', answers, comment, at: new Date().toISOString(), by: req.userId }
-  await saveValidations(empId, all)
-  res.json({ snapshot: await buildSnapshot(empId), score: submit ? percentToScore(managerFromAnswers(taskIds, answers, setup.config.scoring.manager).pct ?? 0, setup.config.scoring.manager) : null })
+  // Replace this person's evaluation as a whole, so a draft can't leave stale sections behind.
+  await saveValidations(empId, records)
+  res.json({ snapshot: await buildSnapshot(empId) })
 })
-
 /* ------------------------------- Reminders ------------------------------- */
 
 // Demo: records that a reminder was sent. Delivery (email / in-app) is part of the notifications work.

@@ -1,4 +1,5 @@
 import type { AppState, AdminSection } from '../types'
+import { evidenceError } from './evidence'
 
 export interface Issue {
   id: string
@@ -22,6 +23,8 @@ export function validate(state: AppState): Issue[] {
   if (new Set(levelNames).size !== levelNames.length) add('error', 'framework', 'dup-level', 'Proficiency level names must be unique.')
   if (config.scale.type === 'likert' && config.scale.labels.some((l) => !l.trim()))
     add('error', 'framework', 'likert-labels', 'Every Likert point needs a label.')
+  const evidenceProblem = evidenceError(config.evidence)
+  if (evidenceProblem) add('error', 'framework', 'evidence', evidenceProblem)
 
   // Skill library
   const skills = nodes.filter((n) => n.type === 'skill')
@@ -66,8 +69,6 @@ export function validate(state: AppState): Issue[] {
     if (!(b.s1Max >= 0 && b.s1Max < b.s2Max && b.s2Max < 100))
       add('error', 'scoring', `bands-${label}`, `${label} score bands must increase and stay below 100%.`)
   if (Object.values(weights).some((w) => !(w > 0))) add('error', 'scoring', 'weights', 'Difficulty weights must be greater than zero.')
-  if (config.scoring.progressionMin < config.scoring.courseTriggerBelow - 1)
-    add('warning', 'scoring', 'thr', 'Progression minimum is far below the gap trigger, so clusters could progress while flagged as gaps.')
 
   return issues
 }

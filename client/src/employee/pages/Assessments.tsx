@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { ArrowRight, Check, Lock, RotateCcw } from 'lucide-react'
+import { ArrowRight, Check, RotateCcw } from 'lucide-react'
 import { meApi } from '../../api'
 import { Badge, Button, Card, ConfirmDialog, useToast } from '../../components/ui'
 import { useMe, usePublishedMe } from '../MeContext'
-import { SELF_LABEL, daysUntil, fmtDate, pctOf, summarize } from '../logic'
+import { SELF_LABEL, daysUntil, evaluationOf, fmtDate, summarize } from '../logic'
 import { NotPublished, PageHead, ProgressBar, ScoreChip } from '../shared'
 import { TestPage } from './TestPage'
 import type { PublishedMe } from '../types'
@@ -11,10 +11,10 @@ import type { PublishedMe } from '../types'
 const TABS = [
   { key: 'overview', label: 'Overview', href: '#/assessments' },
   { key: 'self', label: 'Self assessment', href: '#/assessments/self' },
-  { key: 'tests', label: 'Objective tests', href: '#/assessments/tests' },
+  { key: 'tests', label: 'Objective test', href: '#/assessments/tests' },
 ] as const
 
-export function Assessments({ tab, skillId }: { tab: 'overview' | 'self' | 'tests'; skillId?: string }) {
+export function Assessments({ tab }: { tab: 'overview' | 'self' | 'tests' }) {
   const pub = usePublishedMe()
   if (!pub) {
     return (
@@ -24,22 +24,21 @@ export function Assessments({ tab, skillId }: { tab: 'overview' | 'self' | 'test
       </>
     )
   }
-  // A single test is a focused, full-width view with no tab bar.
-  if (tab === 'tests' && skillId) return <TestPage skillId={skillId} />
+  // The test is a focused, full-width view with no tab bar.
+  if (tab === 'tests') return <TestPage />
 
   return (
     <>
       <PageHead title="My assessments" sub={`${pub.me.cycle.name} · due ${fmtDate(pub.me.cycle.due)}`} />
-      <nav className="journey" aria-label="Assessment sections">
+      <nav className="journey journey-tinted" aria-label="Assessment sections">
         {TABS.map((t) => (
-          <a key={t.key} href={t.href} className="journey-step" aria-current={tab === t.key ? 'page' : undefined}>
+          <a key={t.key} href={t.href} className="journey-step" data-tab={t.key} aria-current={tab === t.key ? 'page' : undefined}>
             {t.label}
           </a>
         ))}
       </nav>
       {tab === 'overview' && <Overview m={pub.me} />}
       {tab === 'self' && <SelfAssessment m={pub.me} />}
-      {tab === 'tests' && <TestList m={pub.me} />}
     </>
   )
 }
@@ -51,6 +50,7 @@ function Overview({ m }: { m: PublishedMe }) {
   const toast = useToast()
   const [confirm, setConfirm] = useState(false)
   const s = summarize(m)
+  const ev = evaluationOf(m)
   const days = daysUntil(m.cycle.due)
   const cards = [
     {
@@ -64,32 +64,32 @@ function Overview({ m }: { m: PublishedMe }) {
       href: '#/assessments/self',
     },
     {
-      title: 'Manager validation',
-      body: `${m.employee.manager} confirms which tasks you can perform. Your skip manager reviews the rating.`,
-      status: s.managerDone === m.clusters.length ? 'Complete' : `${s.managerDone} of ${m.clusters.length} done`,
-      tone: s.managerDone === m.clusters.length ? 'good' : 'warn',
+      title: 'Manager evaluation',
+      body: `${m.employee.manager} evaluates you once, skill by skill, on which tasks you can perform. Your skip manager reviews the rating.`,
+      status: ev.state === 'done' ? 'Complete' : ev.state === 'progress' ? 'In progress' : 'Not started',
+      tone: ev.state === 'done' ? 'good' : ev.state === 'progress' ? 'warn' : 'neutral',
       value: s.managerDone,
       max: m.clusters.length,
       cta: 'See results',
       href: '#/profile',
     },
     {
-      title: 'Objective tests',
-      body: 'A short multiple-choice test for each skill. One attempt per skill each cycle.',
-      status: s.testsLeft.length === 0 && s.testableCount > 0 ? 'Complete' : `${s.testsTaken} of ${m.clusters.length} taken`,
-      tone: s.testsLeft.length === 0 && s.testableCount > 0 ? 'good' : s.testsTaken ? 'warn' : 'neutral',
+      title: 'Objective test',
+      body: 'One multiple-choice test with a section for each skill. One attempt each cycle.',
+      status: s.testDone && s.testableCount > 0 ? 'Complete' : s.testStarted ? 'In progress' : 'Not taken',
+      tone: s.testDone && s.testableCount > 0 ? 'good' : s.testStarted ? 'warn' : 'neutral',
       value: s.testsTaken,
       max: m.clusters.length,
-      cta: s.testsLeft.length ? 'Take a test' : 'View results',
+      cta: s.testToTake ? (s.testStarted ? 'Resume test' : 'Take the test') : 'View results',
       href: '#/assessments/tests',
     },
   ] as const
 
   return (
     <div className="stack">
-      {days != null && days >= 0 && days <= 14 && !(s.selfDone && s.testsLeft.length === 0) && (
+      {days != null && days >= 0 && days <= 14 && !(s.selfDone && !s.testToTake) && (
         <p className="callout callout-warn">
-          {days} day{days === 1 ? '' : 's'} left in this cycle. Finish your self assessment and tests before {fmtDate(m.cycle.due)}.
+          {days} day{days === 1 ? '' : 's'} left in this cycle. Finish your self assessment and objective test before {fmtDate(m.cycle.due)}.
         </p>
       )}
       <div className="assess-grid">
@@ -239,52 +239,6 @@ function SelfAssessment({ m }: { m: PublishedMe }) {
         onConfirm={() => save(true)}
         onClose={() => setConfirm(false)}
       />
-    </div>
-  )
-}
-
-/* ------------------------------ Objective tests ------------------------------ */
-
-function TestList({ m }: { m: PublishedMe }) {
-  if (m.clusters.length === 0) return <Card><p className="muted">No skills are mapped to your level yet.</p></Card>
-  return (
-    <div className="stack">
-      <Card title="One attempt per skill" description="Each test is a short set of multiple-choice questions with no time limit. Once you submit, you'll see which answers were right and why.">
-        <ul className="test-list">
-          {m.clusters.map((c) => {
-            const t = c.test
-            const done = t.latest
-            return (
-              <li key={c.id} className="test-row">
-                <div>
-                  <p className="strong">{c.name}</p>
-                  <p className="muted">
-                    {done
-                      ? `Taken ${fmtDate(done.submittedAt)} · ${done.correct} of ${done.total} correct · ${pctOf(done.pct)}`
-                      : t.questionCount
-                        ? `${t.testLength} question${t.testLength === 1 ? '' : 's'}${t.inProgressId ? ' · in progress' : ''}`
-                        : 'No questions available yet'}
-                  </p>
-                </div>
-                {done ? <ScoreChip score={done.score} /> : null}
-                {done ? (
-                  <a className="btn btn-sm" href={`#/assessments/tests/${c.id}`}>
-                    View result
-                  </a>
-                ) : t.questionCount ? (
-                  <a className="btn btn-sm btn-primary" href={`#/assessments/tests/${c.id}`}>
-                    {t.inProgressId ? 'Resume' : 'Start'} <ArrowRight size={13} />
-                  </a>
-                ) : (
-                  <span className="muted test-locked">
-                    <Lock size={13} /> Unavailable
-                  </span>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      </Card>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 // Demo-only seed: a published framework, question bank and some starting progress for the demo employee.
 import { CYCLE, EMPLOYEES, percentToScore } from './demoEmployee.js'
+import { PER_SKILL_QUESTIONS } from './employeeData.js'
 import { readDoc, writeDoc } from '../storage.js'
 import { LEVELS, defaultConfig, listCohorts, loadCohort, publishedFor, saveCohort } from './cohorts.js'
 
@@ -142,46 +143,69 @@ export function buildSeedSetup() {
   return { config: defaultConfig('BAL', 'Powertrain'), nodes, questions }
 }
 
-/** Starting progress for the demo employee: a few tests done and a self assessment in draft. */
-export function buildSeedEmployeeDoc(setup, meta = { cohortId: 'bal-powertrain', version: 1 }) {
+/**
+ * A finished objective test: one attempt with a section per skill, scored the same way the separate tests were.
+ * A few sections have wrong answers so the results aren't all perfect.
+ */
+function seedTestAttempt(setup, meta) {
   const { weights, test: bands } = setup.config.scoring
-  // skill key -> indexes (within its basic questions) that were answered wrongly
-  const takes = { cnc: [6], safety: [], tpm: [3, 5, 6] }
-  const attempts = Object.entries(takes).flatMap(([key, wrongIdx], n) => {
-    const pool = setup.questions.filter((q) => q.skillId === `sk-${key}` && q.levelId === B)
-    if (!pool.length) return [] // the framework was edited, nothing to seed
-    const answers = {}
+  // skill key -> positions within its section that were answered wrongly
+  const wrong = { cnc: [6], lean: [5, 6], tpm: [3, 5, 6] }
+  const questionIds = []
+  const answers = {}
+  const perSkill = {}
+  let earnedAll = 0
+  let possibleAll = 0
+  let correctAll = 0
+  for (const skill of setup.nodes.filter((n) => n.type === 'skill')) {
+    const pool = setup.questions.filter((q) => q.active && q.skillId === skill.id && q.levelId === B).slice(0, PER_SKILL_QUESTIONS)
+    if (!pool.length) continue
     let earned = 0
     let possible = 0
     let correct = 0
     pool.forEach((q, i) => {
       const w = weights[q.difficulty]
       possible += w
-      const right = !wrongIdx.includes(i)
+      const right = !(wrong[skill.id.replace(/^sk-/, '')] ?? []).includes(i)
       answers[q.id] = right ? q.correct : 'ABCD'.replace(q.correct, '')[0]
+      questionIds.push(q.id)
       if (right) {
         earned += w
         correct++
       }
     })
     const pct = (earned / possible) * 100
-    return [{
-      id: `seed-attempt-${key}`,
-      skillId: `sk-${key}`,
-      levelId: B,
-      cycleId: CYCLE.id,
-      cohortId: meta.cohortId,
-      version: meta.version,
-      questionIds: pool.map((q) => q.id),
-      startedAt: new Date(Date.now() - (n + 2) * 86_400_000).toISOString(),
-      status: 'submitted',
-      submittedAt: new Date(Date.now() - (n + 2) * 86_400_000 + 900_000).toISOString(),
-      answers,
-      pct,
-      score: percentToScore(pct, bands),
-      correct,
-    }]
-  })
+    perSkill[skill.id] = { pct, score: percentToScore(pct, bands), correct, total: pool.length, earned, possible }
+    earnedAll += earned
+    possibleAll += possible
+    correctAll += correct
+  }
+  if (!questionIds.length) return []
+  const pct = (earnedAll / possibleAll) * 100
+  const at = Date.now() - 2 * 86_400_000
+  return [{
+    id: 'seed-attempt-test',
+    levelId: B,
+    cycleId: CYCLE.id,
+    cohortId: meta.cohortId,
+    version: meta.version,
+    questionIds,
+    startedAt: new Date(at).toISOString(),
+    status: 'submitted',
+    submittedAt: new Date(at + 1_800_000).toISOString(),
+    answers,
+    pct,
+    score: percentToScore(pct, bands),
+    correct: correctAll,
+    earned: earnedAll,
+    possible: possibleAll,
+    perSkill,
+  }]
+}
+
+/** Starting progress: a self assessment in draft and, unless `withTest` is false, a finished objective test. */
+export function buildSeedEmployeeDoc(setup, meta = { cohortId: 'bal-powertrain', version: 1, withTest: true }) {
+  const attempts = meta.withTest === false ? [] : seedTestAttempt(setup, meta)
   return {
     currentLevelId: B,
     self: {
@@ -189,6 +213,8 @@ export function buildSeedEmployeeDoc(setup, meta = { cohortId: 'bal-powertrain',
         'sk-cnc': { rating: 2, comment: 'Comfortable on setups, still learning offsets on the new 5-axis.' },
         'sk-quality': { rating: 3, comment: '' },
         'sk-lean': { rating: 1, comment: '' },
+        // Rated high while the manager and test results are lower, so Reflection shows the "over" message too.
+        'sk-tpm': { rating: 3, comment: '' },
       },
       submittedAt: null,
     },
@@ -198,6 +224,11 @@ export function buildSeedEmployeeDoc(setup, meta = { cohortId: 'bal-powertrain',
 }
 
 const clone = (x) => JSON.parse(JSON.stringify(x))
+/**
+ * The demo employee. A new seed gives them a finished test so their skill card has strengths and gaps to show;
+ * the reset button puts them back to a test not yet taken, so taking it can be walked through live.
+ */
+export const DEMO_TEST_USER = 'u1'
 
 /**
  * First run: turn a pre-cohort single framework (the old setup document) into the BAL Powertrain cohort,
@@ -233,11 +264,70 @@ export async function ensureSeed() {
     }
     await writeDoc('meta/completed-demo', { at: new Date().toISOString() })
   }
+  // One-time: published frameworks for the other business units a BU HR looks after. They start from the same
+  // template; Exports doesn't use CNC Machining, so its framework is a skill shorter.
+  if (!(await readDoc('meta/extra-bu-cohorts'))) {
+    const extras = [
+      { id: 'bal-commuter-motorcycles', unit: 'Commuter Motorcycles', drop: [] },
+      { id: 'bal-exports', unit: 'Exports', drop: ['cnc'] },
+    ]
+    for (const x of extras) {
+      if (await loadCohort(x.id)) continue
+      const draft = buildSeedSetup()
+      draft.config.businessUnit = x.unit
+      const dropped = (id) => x.drop.some((k) => id === `sk-${k}` || id.startsWith(`sb-${k}-`) || id.startsWith(`tk-${k}-`))
+      draft.nodes = draft.nodes.filter((n) => !dropped(n.id))
+      draft.questions = draft.questions.filter((q) => !dropped(q.skillId))
+      const now = new Date().toISOString()
+      await saveCohort({ id: x.id, createdAt: now, updatedAt: now, draft, versions: [{ version: 1, at: now, state: clone(draft) }] })
+    }
+    await writeDoc('meta/extra-bu-cohorts', { at: new Date().toISOString() })
+  }
+
   // People added to the demo later (e.g. the manager) get starting progress without touching anyone else's.
   for (const [userId, profile] of Object.entries(EMPLOYEES)) {
     const fw = await publishedFor(profile)
     if (!fw?.state.nodes?.some((n) => n.id === 'sk-cnc')) continue
-    if (seeded || !(await readDoc(`employees/${userId}`))) await writeDoc(`employees/${userId}`, buildSeedEmployeeDoc(fw.state, { cohortId: fw.cohortId, version: fw.version }))
+    const meta = { cohortId: fw.cohortId, version: fw.version, withTest: true }
+    const existing = seeded ? null : await readDoc(`employees/${userId}`)
+    if (!existing) {
+      await writeDoc(`employees/${userId}`, buildSeedEmployeeDoc(fw.state, meta))
+      continue
+    }
+    // The objective test used to be seeded as separate per-skill attempts. Swap just those for the combined test,
+    // so nothing else the person has done (self ratings, a test they took themselves, reflections) is touched.
+    const isOldSeed = (a) => typeof a.id === 'string' && a.id.startsWith('seed-attempt-') && a.skillId
+    if (existing.attempts?.some(isOldSeed)) {
+      existing.attempts = [...existing.attempts.filter((a) => !isOldSeed(a)), ...(meta.withTest ? seedTestAttempt(fw.state, meta) : [])]
+      await writeDoc(`employees/${userId}`, existing)
+    }
+  }
+
+  // One-time: add the high Maintenance & TPM self rating to demo logins that already have a document, so every
+  // Reflection message (over, under, aligned, can't compare) shows for each of them. Existing ratings stay as they are.
+  if (!(await readDoc('meta/reflection-demo-cases'))) {
+    for (const userId of Object.keys(EMPLOYEES)) {
+      const doc = await readDoc(`employees/${userId}`)
+      if (doc && !doc.self?.submittedAt && !doc.self?.ratings?.['sk-tpm']) {
+        doc.self = { ...doc.self, ratings: { ...doc.self?.ratings, 'sk-tpm': { rating: 3, comment: '' } } }
+        await writeDoc(`employees/${userId}`, doc)
+      }
+    }
+    await writeDoc('meta/reflection-demo-cases', { at: new Date().toISOString() })
+  }
+
+  // One-time: give the demo employee a finished test if they had none, so their skill card shows strengths and
+  // development areas straight away. Anything they have started or taken themselves is left alone, and after a
+  // reset (which clears the test on purpose) this does not run again.
+  if (!(await readDoc('meta/demo-employee-results'))) {
+    const profile = EMPLOYEES[DEMO_TEST_USER]
+    const fw = await publishedFor(profile)
+    const doc = await readDoc(`employees/${DEMO_TEST_USER}`)
+    if (fw && doc && !(doc.attempts ?? []).length) {
+      doc.attempts = seedTestAttempt(fw.state, { cohortId: fw.cohortId, version: fw.version })
+      await writeDoc(`employees/${DEMO_TEST_USER}`, doc)
+    }
+    await writeDoc('meta/demo-employee-results', { at: new Date().toISOString() })
   }
   return seeded
 }

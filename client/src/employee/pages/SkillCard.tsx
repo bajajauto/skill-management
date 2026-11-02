@@ -23,7 +23,13 @@ export function SkillCard() {
 export function SkillCardView({ m, title, sub, back }: { m: PublishedMe; title: string; sub: string; back?: { href: string; label: string } }) {
   const e = m.employee
   const s = summarize(m)
-  const strengths = s.rows.filter(({ c }) => (managerScore(c) ?? 0) >= 3 || (testScore(c) ?? 0) >= 3)
+  // A skill is only judged once both its manager evaluation and its objective test result are in.
+  // Until then it is neither a strength nor a development area, however the one result that exists looks.
+  const ready = s.rows.filter(({ c }) => managerScore(c) != null && testScore(c) != null)
+  const waiting = s.rows.length - ready.length
+  const strengths = ready.filter((r) => r.status === 'cleared')
+  const devAreas = ready.filter((r) => r.status === 'gap')
+  const waitingText = 'Appears once your manager evaluation and objective test results are in.'
   const initials = e.name.split(' ').map((p) => p[0]).join('').slice(0, 2)
 
   return (
@@ -83,24 +89,29 @@ export function SkillCardView({ m, title, sub, back }: { m: PublishedMe; title: 
                 ))}
               </ul>
             ) : (
-              <p className="muted">Strengths show up here as results come in.</p>
+              <p className="muted">{waiting === s.rows.length ? waitingText : 'None yet.'}</p>
             )}
           </section>
           <section>
             <h3>
               <Target size={15} /> Development areas
             </h3>
-            {s.gaps.length ? (
+            {devAreas.length ? (
               <ul>
-                {s.gaps.map(({ c }) => (
+                {devAreas.map(({ c }) => (
                   <li key={c.id}>{c.name}</li>
                 ))}
               </ul>
             ) : (
-              <p className="muted">{s.incomplete.length ? 'None identified yet.' : 'None right now.'}</p>
+              <p className="muted">{waiting === s.rows.length ? waitingText : 'None right now.'}</p>
             )}
           </section>
         </div>
+        {waiting > 0 && waiting < s.rows.length && (
+          <p className="field-hint">
+            {waiting} of {s.rows.length} skill{s.rows.length === 1 ? '' : 's'} still waiting for results, so {waiting === 1 ? 'it isn’t' : 'they aren’t'} counted above yet.
+          </p>
+        )}
 
         <section>
           <h3>Skill by skill</h3>
@@ -123,7 +134,11 @@ export function SkillCardView({ m, title, sub, back }: { m: PublishedMe; title: 
                   <td>
                     <ScoreChip score={testScore(c)} /> {testScore(c) ? SCORE_NAME[testScore(c)!] : ''}
                   </td>
-                  <td>{STATUS_COPY[status].label}</td>
+                  <td>
+                    <span className="status-pill" data-status={status}>
+                      {STATUS_COPY[status].label}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
