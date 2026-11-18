@@ -159,13 +159,20 @@ function Runner({ test, watermark, onDone }: { test: TestStart; watermark: strin
   const current = sections.findIndex((s) => i >= s.from && i < s.from + s.count)
   const section = sections[current]
 
+  // One submit at a time: the strikes, the open-time check and the retry can all ask for it together.
+  const submitting = useRef(false)
   const submit = async (reason?: 'violations') => {
+    if (submitting.current) return
+    submitting.current = true
     setBusy(true)
     try {
       onDone(await meApi.submitTest(test.attemptId, answersRef.current, reason))
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Could not submit', 'error')
       setBusy(false)
+      submitting.current = false
+      // An automatic submit has no button to press again, so keep trying until it goes through.
+      if (reason === 'violations' && !(e instanceof Error && /already submitted/.test(e.message))) setTimeout(() => void submit(reason), 2000)
     }
   }
 
