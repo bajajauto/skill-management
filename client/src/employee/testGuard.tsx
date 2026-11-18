@@ -31,6 +31,9 @@ export const REASON: Record<ViolationType, string> = {
 const BLOCKED_COMBOS = ['p', 's', 'c', 'x', 'u']
 const SHORT_NOTICE_MS = 4000
 
+/** Leaving full screen is deferred a beat so a remount (React dev double-run) doesn't drop it and look like a strike. */
+let exitTimer: ReturnType<typeof setTimeout> | undefined
+
 export function useTestGuard({
   attemptId,
   maxViolations,
@@ -44,31 +47,39 @@ export function useTestGuard({
   onAutoSubmit: () => void
 }) {
   const [count, setCount] = useState(initialCount)
+  const countRef = useRef(initialCount)
   const [paused, setPaused] = useState<ViolationType | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const away = useRef(false)
   const finished = useRef(false)
   const lastStrike = useRef<{ type: string; at: number } | null>(null)
   const needFullscreen = useRef(fullscreenSupported())
+  // Only a real exit from full screen is a strike: the page must have actually been in it first.
+  const inFullscreen = useRef(false)
   const autoSubmit = useRef(onAutoSubmit)
   autoSubmit.current = onAutoSubmit
 
   const report = useCallback(
     async (type: ViolationType) => {
       if (finished.current) return
-      setCount((c) => c + 1)
+      countRef.current += 1
+      setCount(countRef.current)
+      let serverSaysSubmit = false
       try {
         const r = await meApi.reportViolation(attemptId, type)
-        setCount(r.count)
-        if (r.autoSubmit && !finished.current) {
-          finished.current = true
-          autoSubmit.current()
-        }
+        countRef.current = Math.max(countRef.current, r.count)
+        setCount(countRef.current)
+        serverSaysSubmit = r.autoSubmit
       } catch {
         /* offline: the server count catches up on the next report */
       }
+      // Out of strikes by the server's count or by what the person has already seen on screen: either way, submit.
+      if ((serverSaysSubmit || countRef.current >= maxViolations) && !finished.current) {
+        finished.current = true
+        autoSubmit.current()
+      }
     },
-    [attemptId],
+    [attemptId, maxViolations],
   )
 
   /** Leaving the test: one strike per absence, and the questions stay hidden until the person comes back. */
@@ -99,7 +110,15 @@ export function useTestGuard({
   useEffect(() => {
     const onVisibility = () => document.hidden && leave('tab-hidden')
     const onBlur = () => leave('window-blur')
-    const onFullscreen = () => needFullscreen.current && !document.fullscreenElement && leave('fullscreen-exit')
+    clearTimeout(exitTimer)
+    inFullscreen.current = !!document.fullscreenElement
+    const onFullscreen = () => {
+      if (document.fullscreenElement) inFullscreen.current = true
+      else if (needFullscreen.current && inFullscreen.current) {
+        inFullscreen.current = false
+        leave('fullscreen-exit')
+      }
+    }
     const stop = (e: Event) => e.preventDefault()
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -133,7 +152,9 @@ export function useTestGuard({
       window.removeEventListener('keyup', onKeyUp, true)
       window.removeEventListener('beforeprint', onBeforePrint)
       for (const ev of ['copy', 'cut', 'paste', 'contextmenu', 'dragstart', 'selectstart']) document.removeEventListener(ev, stop)
-      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+      exitTimer = setTimeout(() => {
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+      }, 150)
     }
   }, [leave, strike])
 

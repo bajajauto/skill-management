@@ -180,9 +180,11 @@ function AdminRoot({ user, onSignOut }: { user: User; onSignOut: () => void }) {
 
 const SESSION_KEY = 'skills-platform-user'
 
+/** The session lives in sessionStorage: a reload keeps you signed in, but opening the link fresh lands on the login page. */
 function loadUser(): User | null {
   try {
-    return JSON.parse(localStorage.getItem(SESSION_KEY) ?? 'null') as User | null
+    localStorage.removeItem(SESSION_KEY) // older builds kept the session here
+    return JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? 'null') as User | null
   } catch {
     return null
   }
@@ -193,7 +195,7 @@ export default function App() {
 
   const signIn = (u: User) => {
     try {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(u))
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(u))
     } catch {
       /* session just won't survive a reload */
     }
@@ -202,7 +204,7 @@ export default function App() {
   }
   const signOut = () => {
     try {
-      localStorage.removeItem(SESSION_KEY)
+      sessionStorage.removeItem(SESSION_KEY)
     } catch {
       /* ignore */
     }
