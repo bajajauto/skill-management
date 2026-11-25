@@ -84,6 +84,8 @@ export interface Config {
   evidence: EvidenceRule
   /** Last day (YYYY-MM-DD) the skip-level manager can calibrate. Employees see their manager's scores after it. */
   calibrationDeadline: string
+  /** Last day (YYYY-MM-DD) managers can evaluate their team. */
+  evaluationDeadline: string
   scoring: ScoringConfig
 }
 

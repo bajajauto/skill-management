@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { EMPLOYEES, skipReportIds } from '../lib/demoEmployee.js'
-import { buildSnapshot, loadCalibrations, saveCalibrations } from '../lib/employeeData.js'
+import { buildSnapshot, calSignature, loadCalibrations, saveCalibrations } from '../lib/employeeData.js'
 
 export const skipRouter = Router()
 
@@ -35,8 +35,10 @@ skipRouter.get('/:empId', async (req, res) => {
   res.json({ id, snapshot: await buildSnapshot(id) })
 })
 
-// Per skill the skip manager either agrees with the manager's score or gives a different one with a reason.
-// Skills left alone keep the manager's score. Body: { agreeAll?: true, skills?: { [skillId]: { score: 1-3 | null, reason } } }
+// The skip manager rates the same tasks as the manager, Yes / No / N/A, and the skill score follows from those answers.
+// Where they agree they can say so; tasks they leave alone keep the manager's answer.
+// Body: { agreeAll?: true, skills?: { [skillId]: { answers: { [taskId]: 'yes' | 'no' | 'na' }, reason } | null } }
+// null takes a calibration back, so the manager's own answers flow through again.
 skipRouter.put('/:empId/calibration', async (req, res) => {
   const empId = reportOf(req, req.params.empId)
   const snap = await buildSnapshot(empId)
@@ -45,27 +47,39 @@ skipRouter.put('/:empId/calibration', async (req, res) => {
   if (!snap.calibration.open) throw fail(409, `Calibration closed on ${snap.calibration.deadline}. The manager's scores now stand.`)
   const cals = await loadCalibrations(empId)
   const at = new Date().toISOString()
-  const record = (c, score, reason) => {
-    cals[c.id] = { score, reason: score === c.manager.original ? '' : reason, by: req.userId, byName: req.me.name, at, basedOn: c.manager.original }
+  const taskIdsOf = (c) => c.tasks.map((t) => t.id)
+  const managersOf = (c) => Object.fromEntries(c.tasks.map((t) => [t.id, t.managerOriginal]))
+  const record = (c, answers, reason) => {
+    const managers = managersOf(c)
+    const same = taskIdsOf(c).every((id) => answers[id] === managers[id])
+    cals[c.id] = { answers, reason: same ? '' : reason, by: req.userId, byName: req.me.name, at, basedOn: calSignature(taskIdsOf(c), managers) }
   }
   const evaluated = snap.clusters.filter((c) => c.manager.status === 'calibrated')
 
   if (req.body?.agreeAll === true) {
-    for (const c of evaluated) if (cals[c.id]?.basedOn !== c.manager.original) record(c, c.manager.original, '')
+    for (const c of evaluated) if (cals[c.id]?.basedOn !== calSignature(taskIdsOf(c), managersOf(c))) record(c, managersOf(c), '')
   }
   for (const [skillId, entry] of Object.entries(req.body?.skills ?? {})) {
     const c = snap.clusters.find((x) => x.id === skillId)
     if (!c) throw fail(400, 'Unknown skill.')
     if (c.manager.status !== 'calibrated') throw fail(400, `${c.name}: the manager has not evaluated this skill yet.`)
-    // No score means "take my change back": the manager's score flows through again.
-    if (entry?.score == null) {
+    if (entry == null) {
       delete cals[c.id]
       continue
     }
-    if (!Number.isInteger(entry.score) || entry.score < 1 || entry.score > 4) throw fail(400, 'Scores are whole numbers from 1 to 4.')
+    const managers = managersOf(c)
+    const answers = {}
+    for (const id of taskIdsOf(c)) {
+      const a = entry.answers?.[id] ?? managers[id]
+      if (!['yes', 'no', 'na'].includes(a)) throw fail(400, `${c.name}: each task must be Yes, No or Not applicable.`)
+      answers[id] = a
+    }
+    for (const id of Object.keys(entry.answers ?? {})) if (!(id in answers)) throw fail(400, `${c.name}: unknown task.`)
+    if (!Object.values(answers).some((a) => a === 'yes' || a === 'no')) throw fail(400, `${c.name}: at least one task must apply.`)
     const reason = String(entry.reason ?? '').trim().slice(0, 1000)
-    if (entry.score !== c.manager.original && !reason) throw fail(400, `${c.name}: say why you are changing the manager's score.`)
-    record(c, entry.score, reason)
+    const changed = taskIdsOf(c).some((id) => answers[id] !== managers[id])
+    if (changed && !reason) throw fail(400, `${c.name}: say why you are changing the manager's answers.`)
+    record(c, answers, reason)
   }
   await saveCalibrations(empId, cals)
   res.json({ snapshot: await buildSnapshot(empId) })

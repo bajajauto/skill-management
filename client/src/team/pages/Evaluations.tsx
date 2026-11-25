@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArrowRight, Check } from 'lucide-react'
 import { Badge, Card, Empty, Segmented } from '../../components/ui'
 import { ScoreChip } from '../../employee/shared'
-import { SCORE_NAME, outOf } from '../../employee/logic'
+import { SCORE_NAME, fmtDate, outOf } from '../../employee/logic'
 import { memberStats, type PublishedMember } from '../logic'
 
 const STATE = {
@@ -22,7 +22,7 @@ export function Evaluations({ members }: { members: PublishedMember[] }) {
     <div className="stack">
       <Card
         title="Manager evaluations"
-        description={`${outOf(doneCount, rows.length)} evaluations done. Evaluate each person once: it has a section for every skill, and in each you mark the tasks Yes, No or Not applicable. Each section is scored on its own. Your skip manager may review it afterwards.`}
+        description={`${outOf(doneCount, rows.length)} evaluations done.${members[0] ? ` ${members[0].snapshot.evaluation.open ? `You can evaluate until ${fmtDate(members[0].snapshot.evaluation.deadline)}.` : `Evaluations closed on ${fmtDate(members[0].snapshot.evaluation.deadline)}.`}` : ''} Evaluate each person once: it has a section for every skill, and in each you mark the tasks Yes, No or Not applicable. Each section is scored on its own. Your skip manager may review it afterwards.`}
         action={
           <Segmented
             label="Filter"

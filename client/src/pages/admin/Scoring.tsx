@@ -82,8 +82,18 @@ export function Scoring() {
         </Field>
       </Card>
 
-      <Card title="Skip-level calibration" description="The skip-level manager can review and change their reports' manager scores up to this date. Until the end of that day employees do not see their manager's scores. After it, every score is shown, as given or as calibrated.">
-        <Field label="Calibration deadline" htmlFor="cal-deadline" hint="The last day calibration is open.">
+      <Card title="Evaluation and calibration deadlines" description="Managers evaluate their team up to the first date. The skip-level manager can then review and change the manager's answers up to the second. Until the end of that day employees do not see their manager's scores. After it, every score is shown, as given or as calibrated.">
+        <Field label="Manager evaluation deadline" htmlFor="eval-deadline" hint="The last day managers can evaluate or change an evaluation.">
+          <input
+            id="eval-deadline"
+            className="input"
+            style={{ width: 'auto' }}
+            type="date"
+            value={config.evaluationDeadline ?? ''}
+            onChange={(e) => dispatch({ type: 'config', update: (c) => ({ ...c, evaluationDeadline: e.target.value }) })}
+          />
+        </Field>
+        <Field label="Calibration deadline" htmlFor="cal-deadline" hint="The last day calibration is open. It must be after the evaluation deadline.">
           <input
             id="cal-deadline"
             className="input"

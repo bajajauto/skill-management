@@ -51,10 +51,13 @@ export const saveDoc = (id, doc) => writeDoc(docName(id), doc)
 export const loadValidations = async (empId) => (await readDoc(`validations/${empId}`)) ?? {}
 export const saveValidations = (empId, v) => writeDoc(`validations/${empId}`, v)
 
+/** A fingerprint of the manager's answers on a skill's tasks, so a calibration knows what it was made against. */
+export const calSignature = (taskIds, marks) => taskIds.map((id) => marks[id] ?? '').join(',')
+
 /**
- * Skip-level calibration, one record per skill: { score, reason, by, byName, at, basedOn }. It sits on top of the
- * manager's score and only counts while the manager's score is still the one it was made against (`basedOn`);
- * if the manager revises their evaluation, the new manager score flows through until it is calibrated again.
+ * Skip-level calibration, one record per skill: { answers, reason, by, byName, at, basedOn }. `answers` is the skip
+ * manager's Yes / No / N/A on each task. It only counts while the manager's answers are still the ones it was made
+ * against (`basedOn`); if the manager revises their evaluation, their new answers flow through until it is calibrated again.
  */
 export const loadCalibrations = async (empId) => (await readDoc(`calibrations/${empId}`)) ?? {}
 export const saveCalibrations = (empId, v) => writeDoc(`calibrations/${empId}`, v)
@@ -193,12 +196,18 @@ export function calibrationWindow(configured, now = Date.now()) {
   return { deadline, open: now <= new Date(`${deadline}T23:59:59+05:30`).getTime() }
 }
 
+/** Managers evaluate their team until a deadline (the end of that day, India time). After it evaluations are closed. */
+export function evaluationWindow(configured, now = Date.now()) {
+  const deadline = configured || process.env.EVALUATION_DEADLINE || '2026-11-28'
+  return { deadline, open: now <= new Date(`${deadline}T23:59:59+05:30`).getTime() }
+}
+
 /** What an employee sees in place of the manager's result while calibration is still open. */
 const HIDDEN_MANAGER = { pct: null, yes: 0, applicable: 0, original: 0, calibrated: 0, reason: null, status: 'pending', comment: '', calibration: null }
 
 /**
  * Everything the employee and manager screens need about one person. Pass `hideManager` for the employee's own view:
- * it holds the manager's results back while calibration is open.
+ * it holds the manager's results back while calibration is open, and it never shows that a skip manager changed a score.
  */
 export async function buildSnapshot(empId, opts = {}) {
   const employee = profileOf(empId)
@@ -207,13 +216,14 @@ export async function buildSnapshot(empId, opts = {}) {
   // Each cohort sets its own calibration deadline in the TD admin setup.
   const window = calibrationWindow(setup?.config.calibrationDeadline)
   const hide = opts.hideManager === true && window.open
-  const base = { employee: { ...employee, validated: undefined }, cycle: CYCLE, previousCycle: PREVIOUS_CYCLE, calibration: { ...window, managerHidden: hide } }
+  const base = { employee: { ...employee, validated: undefined }, cycle: CYCLE, previousCycle: PREVIOUS_CYCLE, calibration: { ...window, managerHidden: hide }, evaluation: evaluationWindow(setup?.config.evaluationDeadline) }
   if (!fw) return { ...base, published: false }
 
   const src = await loadSource(empId, setup)
   const { doc, validated } = src
   const validations = await loadValidations(empId)
   const calibrations = await loadCalibrations(empId)
+  const employeeViewOnly = opts.hideManager === true
   const { config, questions } = setup
   const levels = config.levels
   const currentLevelId = levels.some((l) => l.id === doc.currentLevelId) ? doc.currentLevelId : levels[0]?.id
@@ -281,14 +291,21 @@ export async function buildSnapshot(empId, opts = {}) {
       validation = { status: stored?.status === 'draft' ? 'draft' : 'none', answers: stored?.answers ?? {}, comment: stored?.comment ?? '', at: stored?.at ?? null }
     }
 
-    // The skip manager's calibration, when there is one. Without it the manager's score flows through unchanged.
+    // The skip manager's calibration is their own Yes / No / N/A on the same tasks. The skill score is worked out from
+    // those answers, so it moves with them. Without a calibration the manager's answers and score stand.
     const cal = calibrations[skill.id]
+    const managerMarks = marks
     manager.calibration = null
-    if (manager.status === 'calibrated' && cal && cal.basedOn === manager.original) {
-      manager.calibrated = cal.score
-      manager.reason = cal.score === manager.original ? null : cal.reason || null
-      manager.calibration = { by: cal.byName ?? '', at: cal.at, agreed: cal.score === manager.original, reason: cal.reason || null }
+    let finalMarks = managerMarks
+    if (manager.status === 'calibrated' && !real && cal && cal.basedOn === calSignature(taskIds, managerMarks)) {
+      finalMarks = Object.fromEntries(taskIds.map((id) => [id, cal.answers?.[id] ?? managerMarks[id]]))
+      const r = managerFromAnswers(taskIds, finalMarks, scoring.manager)
+      const changedTasks = taskIds.filter((id) => finalMarks[id] !== managerMarks[id]).length
+      manager.calibration = { by: cal.byName ?? '', at: cal.at, agreed: changedTasks === 0, reason: cal.reason || null, changedTasks, managerYes: manager.yes, managerApplicable: manager.applicable }
+      Object.assign(manager, { pct: r.pct, yes: r.yes, applicable: r.applicable, calibrated: r.original, reason: changedTasks ? cal.reason || null : null })
     }
+    // The employee never learns that a skip manager changed anything: they get the final answers and score as the manager's.
+    const employeeView = opts.hideManager === true
 
     const latest = skillResult(skill.id)
     const questionCount = questions.filter((q) => q.active && q.skillId === skill.id && q.levelId === currentLevelId).length
@@ -297,10 +314,12 @@ export async function buildSnapshot(empId, opts = {}) {
       name: skill.name,
       description: skill.description,
       critical: skill.critical,
-      tasks: tasks.map((t) => ({ ...t, managerAnswer: hide ? null : (marks[t.id] ?? null) })),
+      // `managerAnswer` is the final answer. `managerOriginal` is the manager's own, shown to managers only.
+      tasks: tasks.map((t) => ({ ...t, managerAnswer: hide ? null : (finalMarks[t.id] ?? null), ...(employeeView ? {} : { managerOriginal: managerMarks[t.id] ?? null }) })),
       self: doc.self.ratings[skill.id] ?? null,
-      manager: hide ? HIDDEN_MANAGER : manager,
-      validation: hide ? { status: 'none', answers: {}, comment: '', at: null } : validation,
+      // The manager (and the skip manager) still see the original score, the new one and the reason.
+      manager: hide ? HIDDEN_MANAGER : employeeView && manager.calibration ? { ...manager, original: manager.calibrated, reason: null, calibration: null } : manager,
+      validation: hide ? { status: 'none', answers: {}, comment: '', at: null } : employeeView ? { ...validation, answers: {}, comment: '' } : validation,
       // This skill's slice of the combined objective test.
       test: { questionCount, latest },
       // No history was imported, so an imported person has nothing to compare against.
@@ -326,6 +345,8 @@ export async function buildSnapshot(empId, opts = {}) {
   return {
     ...base,
     published: true,
+    // Once the skip manager has given input the manager's evaluation is locked. The employee is not told.
+    ...(employeeViewOnly ? {} : { evaluationLocked: Object.keys(calibrations).length > 0 }),
     version: fw.version,
     labels: config.labels,
     levels,

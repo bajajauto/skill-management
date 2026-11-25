@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { ArrowLeft, Check } from 'lucide-react'
 import { teamApi } from '../../api'
 import { Button, Card, useToast } from '../../components/ui'
-import { SCORE_NAME, outOf } from '../../employee/logic'
+import { SCORE_NAME, fmtDate, outOf } from '../../employee/logic'
 import { ScoreChip } from '../../employee/shared'
 import type { TaskAnswer } from '../../employee/types'
 import { commentRequired, describeEvidence } from '../../lib/evidence'
@@ -60,6 +60,8 @@ export function EvaluationEditor({ empId }: { empId: string }) {
   const answeredTasks = sections.reduce((n, s) => n + s.answered, 0)
   const completeSections = sections.filter((s) => s.complete).length
   const allComplete = sections.length > 0 && completeSections === sections.length
+  const closed = !snap.evaluation.open
+  const locked = snap.evaluationLocked === true || closed
   const revising = sections.length > 0 && sections.every((s) => s.c.manager.status === 'calibrated')
 
   const save = async (submit: boolean) => {
@@ -93,7 +95,13 @@ export function EvaluationEditor({ empId }: { empId: string }) {
         </p>
       </header>
 
-      {revising && <p className="callout callout-warn">You've already evaluated {first}. Submitting again replaces the earlier result.</p>}
+      {closed ? (
+        <p className="callout callout-warn">Evaluations closed on {fmtDate(snap.evaluation.deadline)}. You can read this one but no longer change it.</p>
+      ) : (
+        locked && <p className="callout callout-warn">Your skip manager has reviewed this evaluation, so it is locked. You can read it but no longer change it.</p>
+      )}
+      {!closed && !locked && <p className="muted">You can evaluate until {fmtDate(snap.evaluation.deadline)}.</p>}
+      {revising && !locked && <p className="callout callout-warn">You've already evaluated {first}. Submitting again replaces the earlier result.</p>}
 
       <nav className="section-tabs" aria-label="Evaluation sections">
         {sections.map((s) => (
@@ -129,7 +137,7 @@ export function EvaluationEditor({ empId }: { empId: string }) {
                             <span>{t.name}</span>
                             <div className="vopts" role="radiogroup" aria-label={t.name}>
                               {opts.map((o) => (
-                                <button key={o.v} type="button" role="radio" aria-checked={a === o.v} data-v={o.v} className="vopt" onClick={() => setAnswers({ ...answers, [t.id]: o.v })}>
+                                <button key={o.v} type="button" role="radio" aria-checked={a === o.v} data-v={o.v} className="vopt" disabled={locked} onClick={() => setAnswers({ ...answers, [t.id]: o.v })}>
                                   {o.label}
                                 </button>
                               ))}
@@ -156,6 +164,7 @@ export function EvaluationEditor({ empId }: { empId: string }) {
                 <textarea
                   id={`c-${s.c.id}`}
                   className="input"
+                  disabled={locked}
                   rows={2}
                   maxLength={2000}
                   value={comments[s.c.id] ?? ''}
@@ -176,10 +185,10 @@ export function EvaluationEditor({ empId }: { empId: string }) {
           {outOf(answeredTasks, totalTasks)} tasks answered · {outOf(completeSections, sections.length)} sections complete
         </span>
         <div className="btn-row">
-          <Button disabled={busy || answeredTasks === 0} onClick={() => save(false)}>
+          <Button disabled={locked || busy || answeredTasks === 0} onClick={() => save(false)}>
             Save draft
           </Button>
-          <Button variant="primary" disabled={busy || !allComplete} onClick={() => save(true)}>
+          <Button variant="primary" disabled={locked || busy || !allComplete} onClick={() => save(true)}>
             <Check size={14} /> Submit evaluation
           </Button>
         </div>

@@ -22,6 +22,8 @@ export const defaultConfig = (organization, businessUnit) => ({
   evidence: { always: false, lowest: true, highest: false },
   // Last day (YYYY-MM-DD) the skip-level manager can calibrate. Until then employees can't see their manager's scores.
   calibrationDeadline: '',
+  // Last day (YYYY-MM-DD) managers can evaluate their team. After it the evaluations are closed.
+  evaluationDeadline: '',
   scoring: {
     // Four scores: 1 and 2 are Basic, 3 Intermediate, 4 Advanced. Each score runs up to its maximum percentage.
     manager: { s1Max: 25, s2Max: 50, s3Max: 75 },
@@ -68,7 +70,12 @@ function normalizeCohort(c) {
   // A cohort that is already published without a calibration deadline gets the cycle's, so it isn't left without one.
   if (c.versions?.length) {
     const fallback = process.env.CALIBRATION_DEADLINE || '2026-11-30'
-    for (const cfg of [c.draft?.config, ...c.versions.map((v) => v.state?.config)]) if (cfg && !cfg.calibrationDeadline) cfg.calibrationDeadline = fallback
+    const evalFallback = process.env.EVALUATION_DEADLINE || '2026-11-28'
+    for (const cfg of [c.draft?.config, ...c.versions.map((v) => v.state?.config)]) {
+      if (!cfg) continue
+      if (!cfg.calibrationDeadline) cfg.calibrationDeadline = fallback
+      if (!cfg.evaluationDeadline) cfg.evaluationDeadline = evalFallback
+    }
   }
   return c
 }

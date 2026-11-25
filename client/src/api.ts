@@ -55,7 +55,7 @@ export const teamApi = {
 
 export const skipApi = {
   list: () => json<{ members: Omit<TeamMember, 'remindedAt'>[] }>(request('/skip')),
-  calibrate: (empId: string, body: { agreeAll?: boolean; skills?: Record<string, { score: number | null; reason: string }> }) =>
+  calibrate: (empId: string, body: { agreeAll?: boolean; skills?: Record<string, { answers: Record<string, TaskAnswer>; reason: string } | null> }) =>
     json<{ snapshot: MeSnapshot }>(request(`/skip/${empId}/calibration`, send('PUT', body))),
 }
 

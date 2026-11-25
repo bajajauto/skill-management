@@ -4,7 +4,8 @@ import { skipApi } from '../api'
 import { Badge, Button, Card, Empty, useToast } from '../components/ui'
 import { SCORE_NAME, fmtDate, outOf } from '../employee/logic'
 import { NotPublished, PageHead, ScoreChip } from '../employee/shared'
-import type { PublishedMe } from '../employee/types'
+import type { PublishedMe, TaskAnswer } from '../employee/types'
+import { percentToScore } from '../lib/scale'
 import { calibrationOf, useSkip } from './SkipContext'
 
 export type SkipRoute = { view: 'list' } | { view: 'person'; empId: string }
@@ -46,7 +47,7 @@ export function SkipPage({ route }: { route: SkipRoute }) {
             : `Calibration closed on ${fmtDate(win.deadline)}. Scores are now visible to employees and can't be changed here.`}
         </p>
       )}
-      <Card title="Review your managers' evaluations" description="Each manager scores their own team. Where you see a person differently you can change a skill's score and say why. Where you agree, or do nothing, the manager's score stands.">
+      <Card title="Review your managers' evaluations" description="Each manager scores their own team. Where you see a person differently you can change the manager's answers on their tasks and say why, and the skill score follows. Where you agree, or do nothing, the manager's answers and score stand.">
         {rows.length === 0 ? (
           <Empty title="Nobody here yet">People whose skip-level manager is you will show up here.</Empty>
         ) : (
@@ -92,8 +93,10 @@ function Calibrate({ empId }: { empId: string }) {
   const toast = useToast()
   const member = members?.find((m) => m.id === empId)
   const snap = member?.snapshot.published ? (member.snapshot as PublishedMe) : null
-  // The score chosen for each evaluated skill, and the reason when it differs from the manager's.
-  const [scores, setScores] = useState<Record<string, number>>(() => Object.fromEntries((snap?.clusters ?? []).filter((c) => c.manager.status === 'calibrated').map((c) => [c.id, c.manager.calibrated])))
+  // The skip manager's answer for every task: the manager's own until they change it.
+  const [answers, setAnswers] = useState<Record<string, TaskAnswer>>(() =>
+    Object.fromEntries((snap?.clusters ?? []).flatMap((c) => c.tasks.filter((t) => t.managerAnswer).map((t) => [t.id, t.managerAnswer as TaskAnswer]))),
+  )
   const [reasons, setReasons] = useState<Record<string, string>>(() => Object.fromEntries((snap?.clusters ?? []).map((c) => [c.id, c.manager.calibration?.reason ?? ''])))
   const [busy, setBusy] = useState(false)
 
@@ -110,12 +113,27 @@ function Calibrate({ empId }: { empId: string }) {
   if (!snap) return <NotPublished />
 
   const e = snap.employee
-  const evaluated = snap.clusters.filter((c) => c.manager.status === 'calibrated')
-  const missing = evaluated.filter((c) => scores[c.id] !== c.manager.original && !(reasons[c.id] ?? '').trim())
-  const changed = evaluated.filter((c) => scores[c.id] !== c.manager.original).length
   const open = snap.calibration.open
+  const yesLabel = snap.scale.type === 'binary' && snap.scale.yesLabel ? snap.scale.yesLabel : 'Yes'
+  const noLabel = snap.scale.type === 'binary' && snap.scale.noLabel ? snap.scale.noLabel : 'No'
+  const evaluated = snap.clusters.filter((c) => c.manager.status === 'calibrated')
 
-  const send = async (body: { agreeAll?: boolean; skills?: Record<string, { score: number | null; reason: string }> }, done: string) => {
+  // Each skill with the score it would have on the skip manager's answers, next to the manager's own.
+  const rows = evaluated.map((c) => {
+    const given = c.tasks.map((t) => answers[t.id])
+    const applicable = given.filter((a) => a === 'yes' || a === 'no').length
+    const yes = given.filter((a) => a === 'yes').length
+    const score = applicable ? percentToScore((yes / applicable) * 100, snap.scoring.manager) : null
+    const changed = c.tasks.filter((t) => answers[t.id] !== t.managerOriginal).length
+    const managerYes = c.manager.calibration ? c.manager.calibration.managerYes : c.manager.yes
+    const managerApplicable = c.manager.calibration ? c.manager.calibration.managerApplicable : c.manager.applicable
+    const managerScore = c.manager.original
+    return { c, applicable, yes, score, changed, managerYes, managerApplicable, managerScore, needsReason: changed > 0 && !(reasons[c.id] ?? '').trim() }
+  })
+  const changedSkills = rows.filter((r) => r.changed > 0).length
+  const blocked = rows.some((r) => r.needsReason || r.applicable === 0)
+
+  const send = async (body: { agreeAll?: boolean; skills?: Record<string, { answers: Record<string, TaskAnswer>; reason: string } | null> }, done: string) => {
     setBusy(true)
     try {
       const { snapshot } = await skipApi.calibrate(empId, body)
@@ -129,8 +147,8 @@ function Calibrate({ empId }: { empId: string }) {
   }
   const save = () =>
     send(
-      { skills: Object.fromEntries(evaluated.map((c) => [c.id, { score: scores[c.id], reason: reasons[c.id] ?? '' }])) },
-      changed ? `Saved, ${changed} score${changed === 1 ? '' : 's'} changed` : 'Saved, you agree with the manager',
+      { skills: Object.fromEntries(rows.map((r) => [r.c.id, { answers: Object.fromEntries(r.c.tasks.map((t) => [t.id, answers[t.id]])), reason: reasons[r.c.id] ?? '' }])) },
+      changedSkills ? `Saved, ${changedSkills} skill${changedSkills === 1 ? '' : 's'} changed` : 'Saved, you agree with the manager',
     )
 
   return (
@@ -140,63 +158,92 @@ function Calibrate({ empId }: { empId: string }) {
       </a>
       <PageHead title={`Calibrate ${e.name}`} sub={`${e.designation} · Manager: ${e.manager}`} />
       {!open ? (
-        <p className="callout callout-warn">Calibration closed on {fmtDate(snap.calibration.deadline)}. The scores below are final.</p>
+        <p className="callout callout-warn">Calibration closed on {fmtDate(snap.calibration.deadline)}. The answers below are final.</p>
       ) : evaluated.length === 0 ? (
         <p className="callout">
-          {e.manager} hasn't evaluated {e.name.split(' ')[0]} yet. Once they do, their scores appear here for you to review.
+          {e.manager} hasn't evaluated {e.name.split(' ')[0]} yet. Once they do, their answers appear here for you to review.
         </p>
       ) : (
-        <p className="muted">Pick the score you think is right for each skill. The manager's score is marked. Leave it as it is to agree. A different score needs a reason.</p>
+        <p className="muted">
+          You rate the same tasks as the manager. Their answer is marked on each task. Change any you see differently and the skill score updates from your answers. Changing an answer needs a reason.
+        </p>
       )}
 
       {snap.clusters.map((c) => {
-        const done = c.manager.status === 'calibrated'
-        const diff = done && scores[c.id] !== c.manager.original
-        const yes = c.tasks.filter((t) => t.managerAnswer === 'yes').length
+        const r = rows.find((x) => x.c.id === c.id)
+        if (!r) {
+          return (
+            <Card key={c.id} title={c.name} description={c.description || undefined}>
+              <p className="muted">Not evaluated by the manager yet.</p>
+            </Card>
+          )
+        }
+        const groups = [...new Set(c.tasks.map((t) => t.group))]
+        const opts: { v: TaskAnswer; label: string }[] = [
+          { v: 'yes', label: yesLabel },
+          { v: 'no', label: noLabel },
+          ...(snap.scale.type !== 'binary' || snap.scale.allowNA !== false ? [{ v: 'na' as TaskAnswer, label: 'N/A' }] : []),
+        ]
         return (
           <Card key={c.id} title={c.name} description={c.description || undefined}>
-            {!done ? (
-              <p className="muted">Not evaluated by the manager yet.</p>
-            ) : (
-              <div className="stack-xs">
-                <div className="row-between">
-                  <span className="muted">
-                    Manager's score <ScoreChip score={c.manager.original} /> {SCORE_NAME[c.manager.original]}
-                    {c.manager.applicable ? ` · ${outOf(yes, c.manager.applicable)} applicable tasks marked yes` : ''}
-                  </span>
-                  {c.manager.calibration && <Badge tone={c.manager.calibration.agreed ? 'good' : 'warn'}>{c.manager.calibration.agreed ? 'You agreed' : `You changed it to ${c.manager.calibrated}`}</Badge>}
+            <div className="stack-xs">
+              {c.manager.comment && <p className="muted">Manager's comment: {c.manager.comment}</p>}
+              {groups.map((g) => (
+                <div key={g ?? 'none'} className="stack-xs">
+                  {g && <p className="field-label">{g}</p>}
+                  <ul className="vtasks">
+                    {c.tasks
+                      .filter((t) => t.group === g)
+                      .map((t) => (
+                        <li key={t.id} className="vtask">
+                          <span>
+                            {t.name}
+                            {answers[t.id] !== t.managerOriginal && <small className="muted"> · manager said {t.managerOriginal === 'na' ? 'N/A' : t.managerOriginal === 'yes' ? yesLabel : noLabel}</small>}
+                          </span>
+                          <div className="vopts" role="radiogroup" aria-label={t.name}>
+                            {opts.map((o) => (
+                              <button key={o.v} type="button" role="radio" disabled={!open} aria-checked={answers[t.id] === o.v} data-v={o.v} className="vopt" onClick={() => setAnswers({ ...answers, [t.id]: o.v })}>
+                                {o.label}
+                                {t.managerOriginal === o.v ? ' ·' : ''}
+                              </button>
+                            ))}
+                          </div>
+                        </li>
+                      ))}
+                  </ul>
                 </div>
-                {c.manager.comment && <p className="muted">Manager's comment: {c.manager.comment}</p>}
-                <div className="segmented" role="radiogroup" aria-label={`Score for ${c.name}`}>
-                  {[1, 2, 3, 4].map((n) => (
-                    <button key={n} type="button" role="radio" disabled={!open} aria-checked={scores[c.id] === n} className="segmented-item" onClick={() => setScores({ ...scores, [c.id]: n })}>
-                      {n} {SCORE_NAME[n]}
-                      {n === c.manager.original ? ' (manager)' : ''}
-                    </button>
-                  ))}
-                </div>
-                {diff && (
-                  <div className="field">
-                    <label className="field-label" htmlFor={`r-${c.id}`}>
-                      Why are you changing it? <span className="req">required</span>
-                    </label>
-                    <textarea id={`r-${c.id}`} className="input" rows={2} maxLength={1000} value={reasons[c.id] ?? ''} onChange={(ev) => setReasons({ ...reasons, [c.id]: ev.target.value })} placeholder="What have you seen that supports this score?" />
-                  </div>
-                )}
+              ))}
+              <div className="row-between eval-result">
+                <span className="muted">
+                  Manager: <ScoreChip score={r.managerScore} /> {SCORE_NAME[r.managerScore]} ({outOf(r.managerYes, r.managerApplicable)} tasks)
+                </span>
+                <span className="eval-score">
+                  You: <ScoreChip score={r.score} /> {r.score ? SCORE_NAME[r.score] : ''}
+                  {r.changed === 0 ? <Badge tone="good">Agree</Badge> : <Badge tone="warn">{r.changed} changed</Badge>}
+                </span>
               </div>
-            )}
+              {r.changed > 0 && (
+                <div className="field">
+                  <label className="field-label" htmlFor={`r-${c.id}`}>
+                    Why are you changing it? <span className="req">required</span>
+                  </label>
+                  <textarea id={`r-${c.id}`} className="input" rows={2} maxLength={1000} disabled={!open} value={reasons[c.id] ?? ''} onChange={(ev) => setReasons({ ...reasons, [c.id]: ev.target.value })} placeholder="What have you seen that supports your answers?" />
+                </div>
+              )}
+              {r.applicable === 0 && <p className="field-error">At least one task must apply.</p>}
+            </div>
           </Card>
         )
       })}
 
       {evaluated.length > 0 && open && (
         <div className="sticky-bar">
-          <span className="muted">{changed ? `${changed} skill${changed === 1 ? '' : 's'} changed` : "No changes, the manager's scores stand"}</span>
+          <span className="muted">{changedSkills ? `${changedSkills} skill${changedSkills === 1 ? '' : 's'} changed` : "No changes, the manager's answers stand"}</span>
           <div className="btn-row">
             <Button disabled={busy} onClick={() => void send({ agreeAll: true }, 'Saved, you agree with the manager')}>
               Agree with all
             </Button>
-            <Button variant="primary" disabled={busy || missing.length > 0} onClick={() => void save()}>
+            <Button variant="primary" disabled={busy || blocked} onClick={() => void save()}>
               <Check size={14} /> Save review
             </Button>
           </div>

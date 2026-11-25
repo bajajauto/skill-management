@@ -17,6 +17,7 @@ export const defaultConfig = (): Config => ({
   scale: { type: 'binary', yesLabel: 'Yes', noLabel: 'No', allowNA: true },
   evidence: { always: false, lowest: true, highest: false },
   calibrationDeadline: '',
+  evaluationDeadline: '',
   scoring: {
     // Four scores: 1 and 2 are Basic, 3 Intermediate, 4 Advanced. Each runs up to its maximum percentage.
     manager: { s1Max: 25, s2Max: 50, s3Max: 75 },

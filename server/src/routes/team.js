@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { readDoc, writeDoc } from '../storage.js'
 import { TEAMS } from '../lib/demoEmployee.js'
 import { realTeam } from '../lib/realData.js'
-import { buildSnapshot, clustersFor, getEmployeeFramework, managerFromAnswers, saveValidations } from '../lib/employeeData.js'
+import { buildSnapshot, clustersFor, evaluationWindow, getEmployeeFramework, loadCalibrations, managerFromAnswers, saveValidations } from '../lib/employeeData.js'
 import { commentRequired, describeEvidence, normalizeEvidence } from '../lib/evidence.js'
 
 export const teamRouter = Router()
@@ -18,6 +18,8 @@ teamRouter.use((req, _res, next) => {
   req.team = team
   next()
 })
+
+const hasSkipInput = (cals) => Object.keys(cals).length > 0
 
 const reminderDoc = (managerId) => `reminders/${managerId}`
 
@@ -49,6 +51,10 @@ teamRouter.put('/:empId/evaluation', async (req, res) => {
   const fw = await getEmployeeFramework(empId)
   if (!fw) throw fail(409, 'The framework is not published yet.')
   const setup = fw.state
+  const window = evaluationWindow(setup.config.evaluationDeadline)
+  if (!window.open) throw fail(409, `Evaluations closed on ${window.deadline}. They can no longer be changed.`)
+  // Once the skip manager has given input on this evaluation it is locked, so what they reviewed can't change under them.
+  if (hasSkipInput(await loadCalibrations(empId))) throw fail(409, 'Your skip manager has already reviewed this evaluation, so it is locked and can no longer be changed.')
   const snap = await buildSnapshot(empId)
   if (!snap.clusters.length) throw fail(409, 'There are no skills to evaluate at this person\'s level.')
 

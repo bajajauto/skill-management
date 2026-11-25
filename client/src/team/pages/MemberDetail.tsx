@@ -78,6 +78,14 @@ export function PersonView({ member, backHref, backLabel, canValidate }: { membe
                   <td>
                     <ScoreChip score={managerScore(c)} />
                     <span className="muted"> {managerScore(c) ? (c.manager.applicable ? `${outOf(c.manager.yes, c.manager.applicable)} tasks` : outOf(c.manager.calibrated, 4)) : 'Pending'}</span>
+                    {c.manager.calibration && !c.manager.calibration.agreed && (
+                      <>
+                        {' '}
+                        <span title={`${c.manager.calibration.by} changed ${c.manager.calibration.changedTasks} task answer${c.manager.calibration.changedTasks === 1 ? '' : 's'} (you had ${c.manager.calibration.managerYes} of ${c.manager.calibration.managerApplicable} yes, score ${c.manager.original}; now ${c.manager.calibrated})${c.manager.calibration.reason ? `: ${c.manager.calibration.reason}` : ''}`}>
+                          <Badge tone="warn">Changed by skip manager</Badge>
+                        </span>
+                      </>
+                    )}
                   </td>
                   <td>
                     <ScoreChip score={testScore(c)} />

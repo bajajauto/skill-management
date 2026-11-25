@@ -64,7 +64,11 @@ export function validate(state: AppState): Issue[] {
   }
 
   // Scoring
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(config.calibrationDeadline ?? '')) add('error', 'scoring', 'calibration-deadline', 'Set the last day for skip-level calibration.')
+  const isDate = (d: string | undefined) => /^\d{4}-\d{2}-\d{2}$/.test(d ?? '')
+  if (!isDate(config.evaluationDeadline)) add('error', 'scoring', 'evaluation-deadline', 'Set the last day for manager evaluations.')
+  else if (isDate(config.calibrationDeadline) && config.calibrationDeadline <= config.evaluationDeadline)
+    add('error', 'scoring', 'deadline-order', 'Skip-level calibration must close after manager evaluations do.')
+  if (!isDate(config.calibrationDeadline)) add('error', 'scoring', 'calibration-deadline', 'Set the last day for skip-level calibration.')
   const { manager, test, weights } = config.scoring
   for (const [label, b] of [['Manager', manager], ['Test', test]] as const)
     if (!(b.s1Max >= 0 && b.s1Max < b.s2Max && b.s2Max < b.s3Max && b.s3Max < 100))

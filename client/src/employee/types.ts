@@ -32,6 +32,12 @@ export interface CalibrationWindow {
   managerHidden: boolean
 }
 
+/** A last day (YYYY-MM-DD, inclusive) and whether it has not passed yet. */
+export interface Deadline {
+  deadline: string
+  open: boolean
+}
+
 export interface Cycle {
   id: string
   name: string
@@ -47,7 +53,10 @@ export interface ClusterTask {
   name: string
   description: string
   group: string | null
+  /** The final answer for the task: the manager's, or the skip manager's where they changed it. */
   managerAnswer: 'yes' | 'no' | 'na' | null
+  /** The manager's own answer. Only managers see this; an employee's view leaves it out. */
+  managerOriginal?: 'yes' | 'no' | 'na' | null
 }
 
 export interface TestAttempt {
@@ -86,7 +95,7 @@ export interface Cluster {
     status: 'pending' | 'calibrated'
     comment: string
     /** The skip-level manager's review of this score, once they have made one. */
-    calibration: { by: string; at: string; agreed: boolean; reason: string | null } | null
+    calibration: { by: string; at: string; agreed: boolean; reason: string | null; changedTasks: number; managerYes: number; managerApplicable: number } | null
   }
   validation: { status: 'none' | 'draft' | 'submitted'; answers: Record<string, TaskAnswer>; comment: string; at: string | null }
   /** This skill's section of the objective test. */
@@ -105,13 +114,16 @@ export interface Reflection {
 }
 
 export type MeSnapshot =
-  | { published: false; employee: MeEmployee; cycle: Cycle; previousCycle: Cycle; calibration: CalibrationWindow }
+  | { published: false; employee: MeEmployee; cycle: Cycle; previousCycle: Cycle; calibration: CalibrationWindow; evaluation: Deadline }
   | {
       published: true
       employee: MeEmployee
       cycle: Cycle
       previousCycle: Cycle
       calibration: CalibrationWindow
+      evaluation: Deadline
+      /** True once the skip manager has given input: the manager's evaluation can no longer be changed. Managers only. */
+      evaluationLocked?: boolean
       version: number
       labels: { skill: string; subskill: string; task: string }
       levels: { id: string; name: string }[]
