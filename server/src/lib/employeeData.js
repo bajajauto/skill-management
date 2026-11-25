@@ -9,6 +9,30 @@ import { REAL, realPerson } from './realData.js'
  * that skill and is scored on its own, exactly as the separate per-skill tests were.
  */
 export const PER_SKILL_QUESTIONS = 10
+/** One test has this many questions in all, shared across its skill sections, and this long to finish them. */
+export const TEST_QUESTIONS = 20
+export const TEST_MINUTES = 40
+
+/**
+ * How many questions each section gets: an even share of TEST_QUESTIONS, never more than the section has, with
+ * whatever a short section can't fill handed to the others in turn. `available` is each section's question count.
+ */
+export function allocate(available, total = TEST_QUESTIONS) {
+  const out = available.map(() => 0)
+  let left = Math.min(total, available.reduce((n, a) => n + a, 0))
+  while (left > 0) {
+    let gave = false
+    for (let i = 0; i < out.length && left > 0; i++) {
+      if (out[i] < available[i]) {
+        out[i]++
+        left--
+        gave = true
+      }
+    }
+    if (!gave) break
+  }
+  return out
+}
 export const MAX_ATTEMPTS = 1 // per level per cycle; retake rules are still an open business decision
 /** Strikes for leaving the test (tab switch, leaving full screen, screenshot or print keys) before it submits itself. */
 export const MAX_VIOLATIONS = 3
@@ -27,13 +51,22 @@ export const saveDoc = (id, doc) => writeDoc(docName(id), doc)
 export const loadValidations = async (empId) => (await readDoc(`validations/${empId}`)) ?? {}
 export const saveValidations = (empId, v) => writeDoc(`validations/${empId}`, v)
 
-export const publicAttempt = (a) => ({
+/**
+ * Skip-level calibration, one record per skill: { score, reason, by, byName, at, basedOn }. It sits on top of the
+ * manager's score and only counts while the manager's score is still the one it was made against (`basedOn`);
+ * if the manager revises their evaluation, the new manager score flows through until it is calibrated again.
+ */
+export const loadCalibrations = async (empId) => (await readDoc(`calibrations/${empId}`)) ?? {}
+export const saveCalibrations = (empId, v) => writeDoc(`calibrations/${empId}`, v)
+
+/** An attempt as the browser sees it. The score is worked out again from the percentage on the bands in force. */
+export const publicAttempt = (a, bands) => ({
   id: a.id,
   skillId: a.skillId,
   status: a.status,
   submittedAt: a.submittedAt ?? null,
   pct: a.pct ?? null,
-  score: a.score ?? null,
+  score: bands && a.pct != null ? percentToScore(a.pct, bands) : (a.score ?? null),
   correct: a.correct ?? null,
   earned: a.earned ?? null,
   possible: a.possible ?? null,
@@ -41,6 +74,7 @@ export const publicAttempt = (a) => ({
   // Integrity record: how often the person left the test, and whether it was submitted for them because of that.
   violations: a.violations?.length ?? 0,
   autoSubmitted: a.autoSubmitted === true,
+          timedOut: a.timedOut === true,
 })
 
 /** Derive a manager result from task answers ({ taskId: 'yes' | 'no' | 'na' }). */
@@ -149,17 +183,37 @@ async function loadSource(id, setup) {
 /** The published framework version that applies to this person, matched on organization and business unit. */
 export const getEmployeeFramework = (id) => publishedFor(profileOf(id))
 
-/** Everything the employee and manager screens need about one person, for the current cycle. */
+/**
+ * Skip-level calibration runs until a deadline (the end of that day, India time). Until then the employee does not see
+ * their manager's scores, since they may still change. From then on every score is shown, calibrated or not.
+ */
+export function calibrationWindow(configured, now = Date.now()) {
+  // The date the TD admin set in the cohort's setup. The cycle default only covers cohorts that have none.
+  const deadline = configured || process.env.CALIBRATION_DEADLINE || CYCLE.calibrationDeadline
+  return { deadline, open: now <= new Date(`${deadline}T23:59:59+05:30`).getTime() }
+}
+
+/** What an employee sees in place of the manager's result while calibration is still open. */
+const HIDDEN_MANAGER = { pct: null, yes: 0, applicable: 0, original: 0, calibrated: 0, reason: null, status: 'pending', comment: '', calibration: null }
+
+/**
+ * Everything the employee and manager screens need about one person. Pass `hideManager` for the employee's own view:
+ * it holds the manager's results back while calibration is open.
+ */
 export async function buildSnapshot(empId, opts = {}) {
   const employee = profileOf(empId)
-  const base = { employee: { ...employee, validated: undefined }, cycle: CYCLE, previousCycle: PREVIOUS_CYCLE }
   const fw = opts.fw ?? (await getEmployeeFramework(empId))
+  const setup = fw?.state
+  // Each cohort sets its own calibration deadline in the TD admin setup.
+  const window = calibrationWindow(setup?.config.calibrationDeadline)
+  const hide = opts.hideManager === true && window.open
+  const base = { employee: { ...employee, validated: undefined }, cycle: CYCLE, previousCycle: PREVIOUS_CYCLE, calibration: { ...window, managerHidden: hide } }
   if (!fw) return { ...base, published: false }
-  const setup = fw.state
 
   const src = await loadSource(empId, setup)
   const { doc, validated } = src
   const validations = await loadValidations(empId)
+  const calibrations = await loadCalibrations(empId)
   const { config, questions } = setup
   const levels = config.levels
   const currentLevelId = levels.some((l) => l.id === doc.currentLevelId) ? doc.currentLevelId : levels[0]?.id
@@ -181,13 +235,14 @@ export async function buildSnapshot(empId, opts = {}) {
           status: 'submitted',
           submittedAt: a.submittedAt ?? null,
           pct: from.pct ?? null,
-          score: from.score ?? null,
+          score: from.pct != null ? percentToScore(from.pct, scoring.test) : (from.score ?? null),
           correct: from.correct ?? null,
           earned: r ? (r.earned ?? null) : null,
           possible: r ? (r.possible ?? null) : null,
           total: r ? r.total : a.questionIds.length,
           violations: a.violations?.length ?? 0,
           autoSubmitted: a.autoSubmitted === true,
+          timedOut: a.timedOut === true,
         }
       }
     }
@@ -226,6 +281,15 @@ export async function buildSnapshot(empId, opts = {}) {
       validation = { status: stored?.status === 'draft' ? 'draft' : 'none', answers: stored?.answers ?? {}, comment: stored?.comment ?? '', at: stored?.at ?? null }
     }
 
+    // The skip manager's calibration, when there is one. Without it the manager's score flows through unchanged.
+    const cal = calibrations[skill.id]
+    manager.calibration = null
+    if (manager.status === 'calibrated' && cal && cal.basedOn === manager.original) {
+      manager.calibrated = cal.score
+      manager.reason = cal.score === manager.original ? null : cal.reason || null
+      manager.calibration = { by: cal.byName ?? '', at: cal.at, agreed: cal.score === manager.original, reason: cal.reason || null }
+    }
+
     const latest = skillResult(skill.id)
     const questionCount = questions.filter((q) => q.active && q.skillId === skill.id && q.levelId === currentLevelId).length
     return {
@@ -233,26 +297,29 @@ export async function buildSnapshot(empId, opts = {}) {
       name: skill.name,
       description: skill.description,
       critical: skill.critical,
-      tasks: tasks.map((t) => ({ ...t, managerAnswer: marks[t.id] ?? null })),
+      tasks: tasks.map((t) => ({ ...t, managerAnswer: hide ? null : (marks[t.id] ?? null) })),
       self: doc.self.ratings[skill.id] ?? null,
-      manager,
-      validation,
+      manager: hide ? HIDDEN_MANAGER : manager,
+      validation: hide ? { status: 'none', answers: {}, comment: '', at: null } : validation,
       // This skill's slice of the combined objective test.
       test: { questionCount, latest },
       // No history was imported, so an imported person has nothing to compare against.
-      previous: real ? { managerPct: null, testPct: null } : demoPrevious(empId, skill.id, { managerPct: manager.pct, testPct: latest?.pct ?? null }),
+      previous: real ? { managerPct: null, testPct: null } : { ...demoPrevious(empId, skill.id, { managerPct: manager.pct, testPct: latest?.pct ?? null }), ...(hide ? { managerPct: null } : {}) },
     }
   })
 
   const combinedDone = done.filter((a) => !a.skillId)
   const inProgress = inLevel.find((a) => !a.skillId && a.status === 'in-progress')
-  const inTest = clusters.filter((c) => c.test.questionCount > 0).map((c) => ({ id: c.id, name: c.name, count: Math.min(PER_SKILL_QUESTIONS, c.test.questionCount) }))
+  const testable = clusters.filter((c) => c.test.questionCount > 0)
+  const share = allocate(testable.map((c) => c.test.questionCount))
+  const inTest = testable.map((c, i) => ({ id: c.id, name: c.name, count: share[i] })).filter((s) => s.count > 0)
   const test = {
     questionCount: clusters.reduce((n, c) => n + c.test.questionCount, 0),
     testLength: inTest.reduce((n, s) => n + s.count, 0),
+    testMinutes: TEST_MINUTES,
     skills: inTest,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS - combinedDone.length),
-    latest: combinedDone.length ? publicAttempt(combinedDone.at(-1)) : null,
+    latest: combinedDone.length ? publicAttempt(combinedDone.at(-1), scoring.test) : null,
     inProgressId: inProgress?.id ?? null,
   }
 
@@ -268,8 +335,9 @@ export async function buildSnapshot(empId, opts = {}) {
     scoring: {
       manager: scoring.manager,
       test: scoring.test,
-      courseTriggerBelow: scoring.courseTriggerBelow,
-      progressionMin: scoring.progressionMin,
+      // The target can differ by proficiency level; the snapshot carries the one for this person's level.
+      courseTriggerBelow: scoring.levelTargets?.[currentLevelId] ?? scoring.courseTriggerBelow,
+      progressionMin: scoring.levelTargets?.[currentLevelId] ?? scoring.progressionMin,
       missingInput: scoring.missingInput,
     },
     self: { submittedAt: doc.self.submittedAt },

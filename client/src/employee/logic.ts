@@ -2,7 +2,7 @@ import type { Cluster, PublishedMe } from './types'
 
 export type ClusterStatus = 'incomplete' | 'gap' | 'cleared'
 
-export const SCORE_NAME: Record<number, string> = { 1: 'Developing', 2: 'Competent', 3: 'Expert' }
+export const SCORE_NAME: Record<number, string> = { 1: 'Basic', 2: 'Basic', 3: 'Intermediate', 4: 'Advanced' }
 export const SELF_LABEL = ['No exposure', 'Beginner', 'Competent', 'Confident'] as const
 
 export const managerScore = (c: Cluster): number | null => (c.manager.status === 'pending' ? null : c.manager.calibrated)

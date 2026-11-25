@@ -119,10 +119,10 @@ function SkillCardBlock({ c, m }: { c: Cluster; m: PublishedMe }) {
           <span className="score-col-label">Manager evaluation</span>
           <span className="score-col-value">
             <ScoreChip score={c.manager.status === 'pending' ? null : c.manager.calibrated} />
-            {c.manager.status === 'pending' ? 'Pending' : SCORE_NAME[c.manager.calibrated]}
+            {m.calibration.managerHidden ? 'Under review' : c.manager.status === 'pending' ? 'Pending' : SCORE_NAME[c.manager.calibrated]}
           </span>
           <small className="muted">
-            {c.manager.applicable ? `${outOf(c.manager.yes, c.manager.applicable)} tasks` : c.manager.status === 'pending' ? 'No applicable tasks' : `${outOf(c.manager.calibrated, 3)}`}
+            {m.calibration.managerHidden ? `Shown after ${fmtDate(m.calibration.deadline)}` : c.manager.applicable ?`${outOf(c.manager.yes, c.manager.applicable)} tasks` : c.manager.status === 'pending' ? 'No applicable tasks' : `${outOf(c.manager.calibrated, 4)}`}
           </small>
         </div>
         <div className="score-col">

@@ -2,6 +2,7 @@ import type { EvidenceRule } from '../types'
 export interface Bands {
   s1Max: number
   s2Max: number
+  s3Max: number
 }
 
 export interface MeEmployee {
@@ -19,6 +20,16 @@ export interface MeEmployee {
   joined: string
   manager: string
   skipManager: string
+}
+
+/**
+ * Skip-level calibration runs until the deadline (a date, inclusive). While it is open an employee does not see their
+ * manager's scores (`managerHidden`); afterwards every score is shown, calibrated or not.
+ */
+export interface CalibrationWindow {
+  deadline: string
+  open: boolean
+  managerHidden: boolean
 }
 
 export interface Cycle {
@@ -45,7 +56,7 @@ export interface TestAttempt {
   status: 'in-progress' | 'submitted'
   submittedAt: string | null
   pct: number | null
-  score: 1 | 2 | 3 | null
+  score: 1 | 2 | 3 | 4 | null
   correct: number | null
   /** Weighted points earned and available, when known. */
   earned: number | null
@@ -54,6 +65,8 @@ export interface TestAttempt {
   /** Times the person left the test or tried to capture it. */
   violations: number
   autoSubmitted: boolean
+  /** Submitted by the clock running out. */
+  timedOut: boolean
 }
 
 export interface Cluster {
@@ -72,6 +85,8 @@ export interface Cluster {
     reason: string | null
     status: 'pending' | 'calibrated'
     comment: string
+    /** The skip-level manager's review of this score, once they have made one. */
+    calibration: { by: string; at: string; agreed: boolean; reason: string | null } | null
   }
   validation: { status: 'none' | 'draft' | 'submitted'; answers: Record<string, TaskAnswer>; comment: string; at: string | null }
   /** This skill's section of the objective test. */
@@ -90,12 +105,13 @@ export interface Reflection {
 }
 
 export type MeSnapshot =
-  | { published: false; employee: MeEmployee; cycle: Cycle; previousCycle: Cycle }
+  | { published: false; employee: MeEmployee; cycle: Cycle; previousCycle: Cycle; calibration: CalibrationWindow }
   | {
       published: true
       employee: MeEmployee
       cycle: Cycle
       previousCycle: Cycle
+      calibration: CalibrationWindow
       version: number
       labels: { skill: string; subskill: string; task: string }
       levels: { id: string; name: string }[]
@@ -114,8 +130,10 @@ export type PublishedMe = Extract<MeSnapshot, { published: true }>
 /** The objective test as one module with a section per skill. */
 export interface ObjectiveTest {
   questionCount: number
-  /** Questions the test will have: up to ten from each skill that has any. */
+  /** Questions the test will have: 20 shared across the skills that have any. */
   testLength: number
+  /** Minutes allowed once it is started. */
+  testMinutes: number
   skills: { id: string; name: string; count: number }[]
   attemptsLeft: number
   latest: TestAttempt | null
@@ -124,6 +142,10 @@ export interface ObjectiveTest {
 
 export interface TestStart {
   attemptId: string
+  /** Minutes allowed, and when time is up and what the server's clock said, so the countdown matches the server's. */
+  minutes: number
+  deadline: string
+  serverNow: string
   maxViolations: number
   violations: number
   /** Sections in order, one per skill. Questions come grouped by section. */

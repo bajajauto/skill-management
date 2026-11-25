@@ -45,12 +45,13 @@ export function toPercent(scale: Scale, value: number): number {
   return ((value - min) / (max - min)) * 100
 }
 
-/** 0 is reserved for "not assessed", so a scored result is always 1-3. */
-export function percentToScore(pct: number, bands: Bands): 1 | 2 | 3 {
+/** 0 is reserved for "not assessed", so a scored result is always 1-4. */
+export function percentToScore(pct: number, bands: Bands): 1 | 2 | 3 | 4 {
   const p = Math.round(pct)
   if (p <= bands.s1Max) return 1
   if (p <= bands.s2Max) return 2
-  return 3
+  if (p <= bands.s3Max) return 3
+  return 4
 }
 
 export function scaleSummary(scale: Scale): string {

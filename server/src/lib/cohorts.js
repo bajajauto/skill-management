@@ -20,11 +20,17 @@ export const defaultConfig = (organization, businessUnit) => ({
   levels: LEVELS,
   scale: { type: 'binary', yesLabel: 'Yes', noLabel: 'No', allowNA: true },
   evidence: { always: false, lowest: true, highest: false },
+  // Last day (YYYY-MM-DD) the skip-level manager can calibrate. Until then employees can't see their manager's scores.
+  calibrationDeadline: '',
   scoring: {
-    manager: { s1Max: 33, s2Max: 66 },
-    test: { s1Max: 60, s2Max: 85 },
-    courseTriggerBelow: 3,
-    progressionMin: 3,
+    // Four scores: 1 and 2 are Basic, 3 Intermediate, 4 Advanced. Each score runs up to its maximum percentage.
+    manager: { s1Max: 25, s2Max: 50, s3Max: 75 },
+    test: { s1Max: 40, s2Max: 60, s3Max: 80 },
+    // A skill is cleared at 4 (Advanced): both scores must reach it, otherwise it is a development gap.
+    courseTriggerBelow: 4,
+    progressionMin: 4,
+    // A different target for a proficiency level, by level id. Levels not listed use progressionMin.
+    levelTargets: {},
     weights: { easy: 1, medium: 1.5, hard: 2 },
     missingInput: 'incomplete',
   },
@@ -39,7 +45,34 @@ const norm = (s) => String(s ?? '').trim().toLowerCase()
 const stable = (v) =>
   JSON.stringify(v, (_k, val) => (val && typeof val === 'object' && !Array.isArray(val) ? Object.fromEntries(Object.entries(val).sort(([a], [b]) => a.localeCompare(b))) : val))
 
-export const loadCohort = (id) => readDoc(docName(id))
+/**
+ * Cohorts saved before the four-score scale only have three bands. Bring them up to date as they are read, so older
+ * drafts and published versions work with the same rules as new ones. Nothing here is written back.
+ */
+export function normalizeScoring(scoring) {
+  if (!scoring) return scoring
+  if (scoring.manager?.s3Max == null || scoring.test?.s3Max == null) {
+    scoring.manager = { s1Max: 25, s2Max: 50, s3Max: 75 }
+    scoring.test = { s1Max: 40, s2Max: 60, s3Max: 80 }
+    // The bar used to be the top score, 3. On four scores the top is 4.
+    scoring.progressionMin = 4
+    scoring.courseTriggerBelow = 4
+  }
+  scoring.levelTargets ??= {}
+  return scoring
+}
+function normalizeCohort(c) {
+  if (!c) return c
+  if (c.draft?.config) normalizeScoring(c.draft.config.scoring)
+  for (const v of c.versions ?? []) normalizeScoring(v.state?.config?.scoring)
+  // A cohort that is already published without a calibration deadline gets the cycle's, so it isn't left without one.
+  if (c.versions?.length) {
+    const fallback = process.env.CALIBRATION_DEADLINE || '2026-11-30'
+    for (const cfg of [c.draft?.config, ...c.versions.map((v) => v.state?.config)]) if (cfg && !cfg.calibrationDeadline) cfg.calibrationDeadline = fallback
+  }
+  return c
+}
+export const loadCohort = async (id) => normalizeCohort(await readDoc(docName(id)))
 export async function saveCohort(c) {
   c.updatedAt = new Date().toISOString()
   await writeDoc(docName(c.id), c)

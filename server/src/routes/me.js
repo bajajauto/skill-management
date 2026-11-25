@@ -4,7 +4,7 @@ import { publishedVersion } from '../lib/cohorts.js'
 import { CYCLE, EMPLOYEES, percentToScore } from '../lib/demoEmployee.js'
 import { isReal } from '../lib/realData.js'
 import { DEMO_TEST_USER, buildSeedEmployeeDoc } from '../lib/demoSetup.js'
-import { MAX_VIOLATIONS, PER_SKILL_QUESTIONS, VIOLATION_TYPES, blankDoc, buildSnapshot, getEmployeeFramework, loadDoc, publicAttempt, saveDoc } from '../lib/employeeData.js'
+import { MAX_VIOLATIONS, TEST_MINUTES, VIOLATION_TYPES, allocate, blankDoc, buildSnapshot, getEmployeeFramework, loadDoc, publicAttempt, saveDoc } from '../lib/employeeData.js'
 
 export const meRouter = Router()
 
@@ -27,7 +27,7 @@ function shuffle(a) {
   return out
 }
 
-meRouter.get('/', async (req, res) => res.json(await buildSnapshot(req.userId)))
+meRouter.get('/', async (req, res) => res.json(await buildSnapshot(req.userId, { hideManager: true })))
 
 /* --------------------------- Self assessment --------------------------- */
 
@@ -48,7 +48,7 @@ meRouter.put('/self-assessment', async (req, res) => {
   if (submit && snap.clusters.some((c) => !ratings[c.id])) throw fail(400, 'Rate every skill before submitting.')
   doc.self = { ratings, submittedAt: submit ? new Date().toISOString() : null }
   await saveDoc(req.userId, doc)
-  res.json(await buildSnapshot(req.userId))
+  res.json(await buildSnapshot(req.userId, { hideManager: true }))
 })
 
 /* ------------------------------ Objective test ------------------------------ */
@@ -66,11 +66,10 @@ meRouter.post('/tests/start', async (req, res) => {
   let attempt = doc.attempts.find((a) => a.id === snap.test.inProgressId)
   if (!attempt) {
     // Sections follow the framework's skill order; questions are shuffled within a section, not across them.
+    const pools = snap.clusters.map((c) => setup.questions.filter((q) => q.active && q.skillId === c.id && q.levelId === snap.currentLevelId))
+    const share = allocate(pools.map((p) => p.length))
     const picked = []
-    for (const c of snap.clusters) {
-      const pool = setup.questions.filter((q) => q.active && q.skillId === c.id && q.levelId === snap.currentLevelId)
-      picked.push(...shuffle(pool).slice(0, PER_SKILL_QUESTIONS))
-    }
+    pools.forEach((pool, i) => picked.push(...shuffle(pool).slice(0, share[i])))
     if (!picked.length) throw fail(409, 'No questions are available for this test yet.')
     attempt = {
       id: randomUUID(),
@@ -96,6 +95,10 @@ meRouter.post('/tests/start', async (req, res) => {
   }
   res.json({
     attemptId: attempt.id,
+    // The clock runs from when the test was first started, so a reload or a pause doesn't buy more time.
+    minutes: TEST_MINUTES,
+    deadline: new Date(new Date(attempt.startedAt).getTime() + TEST_MINUTES * 60_000).toISOString(),
+    serverNow: new Date().toISOString(),
     maxViolations: MAX_VIOLATIONS,
     violations: attempt.violations?.length ?? 0,
     sections,
@@ -125,12 +128,13 @@ function review(setup, attempt) {
 
 /** Result per skill, in the framework's order. Older per-skill attempts give a single entry. */
 function breakdown(setup, attempt) {
+  const bands = setup.config.scoring.test
   const skills = setup.nodes.filter((n) => n.type === 'skill')
   const name = (id) => skills.find((s) => s.id === id)?.name ?? id
   const rows = attempt.perSkill
-    ? Object.entries(attempt.perSkill).map(([id, r]) => ({ skillId: id, name: name(id), pct: r.pct, score: r.score, correct: r.correct, total: r.total, earned: r.earned ?? null, possible: r.possible ?? null }))
+    ? Object.entries(attempt.perSkill).map(([id, r]) => ({ skillId: id, name: name(id), pct: r.pct, score: percentToScore(r.pct, bands), correct: r.correct, total: r.total, earned: r.earned ?? null, possible: r.possible ?? null }))
     : attempt.skillId
-      ? [{ skillId: attempt.skillId, name: name(attempt.skillId), pct: attempt.pct, score: attempt.score, correct: attempt.correct, total: attempt.questionIds.length, earned: null, possible: null }]
+      ? [{ skillId: attempt.skillId, name: name(attempt.skillId), pct: attempt.pct, score: percentToScore(attempt.pct, bands), correct: attempt.correct, total: attempt.questionIds.length, earned: null, possible: null }]
       : []
   return rows.sort((a, b) => skills.findIndex((s) => s.id === a.skillId) - skills.findIndex((s) => s.id === b.skillId))
 }
@@ -189,9 +193,10 @@ meRouter.post('/tests/attempts/:attemptId/submit', async (req, res) => {
   )
   // Only believe "submitted because of violations" if the strikes were really recorded.
   const autoSubmitted = req.body?.reason === 'violations' && (attempt.violations?.length ?? 0) >= MAX_VIOLATIONS
-  Object.assign(attempt, { answers: clean, status: 'submitted', submittedAt: new Date().toISOString(), pct, score: percentToScore(pct, bands), correct, earned, possible, perSkill, autoSubmitted })
+  const timedOut = req.body?.reason === 'time'
+  Object.assign(attempt, { timedOut, answers: clean, status: 'submitted', submittedAt: new Date().toISOString(), pct, score: percentToScore(pct, bands), correct, earned, possible, perSkill, autoSubmitted })
   await saveDoc(req.userId, doc)
-  res.json({ attempt: publicAttempt(attempt), review: review(setup, attempt), breakdown: breakdown(setup, attempt) })
+  res.json({ attempt: publicAttempt(attempt, bands), review: review(setup, attempt), breakdown: breakdown(setup, attempt) })
 })
 
 meRouter.get('/tests/attempts/:attemptId', async (req, res) => {
@@ -199,7 +204,7 @@ meRouter.get('/tests/attempts/:attemptId', async (req, res) => {
   const attempt = doc.attempts.find((a) => a.id === req.params.attemptId && a.status === 'submitted')
   if (!attempt) throw fail(404, 'Result not found.')
   const setup = await frameworkOf(req.userId, attempt)
-  res.json({ attempt: publicAttempt(attempt), review: review(setup, attempt), breakdown: breakdown(setup, attempt) })
+  res.json({ attempt: publicAttempt(attempt, setup.config.scoring.test), review: review(setup, attempt), breakdown: breakdown(setup, attempt) })
 })
 /* -------------------------------- Reflection -------------------------------- */
 
@@ -216,5 +221,5 @@ meRouter.post('/reset', async (req, res) => {
   const fw = await getEmployeeFramework(req.userId)
   const seedable = fw?.state.nodes?.some((n) => n.id === 'sk-cnc')
   await saveDoc(req.userId, seedable ? buildSeedEmployeeDoc(fw.state, { cohortId: fw.cohortId, version: fw.version, withTest: req.userId !== DEMO_TEST_USER }) : blankDoc())
-  res.json(await buildSnapshot(req.userId))
+  res.json(await buildSnapshot(req.userId, { hideManager: true }))
 })

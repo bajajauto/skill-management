@@ -20,6 +20,7 @@
   --s1: #d98b7a;
   --s2: #e3b866;
   --s3: #78b08f;
+  --s4: #3f8f7a;
   --tile-sand: #f1e8da;
   --tile-sage: #e2eee7;
   --tile-sky: #e3ebf2;
@@ -1232,6 +1233,9 @@ textarea.input {
 }
 [data-score='3'] {
   --c: var(--s3);
+}
+[data-score='4'] {
+  --c: var(--s4);
 }
 .band-bar span[data-score] {
   background: var(--c);
@@ -4043,4 +4047,89 @@ a.segmented-item {
 }
 .dash .participant dl > div {
   border-color: #d5dff1;
+}
+
+/* Setup steps not yet reachable: the setup is a process, finished in order. */
+.nav-subitem[aria-disabled='true'],
+.journey-step[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.nav-subitem[aria-disabled='true']:hover,
+.journey-step[aria-disabled='true']:hover {
+  background: transparent;
+}
+.nav-lock {
+  margin-inline-start: auto;
+}
+
+/* Setup steps are shown, not clickable. */
+.nav-step,
+.nav-step:hover {
+  cursor: default;
+}
+.nav-step:not([aria-current='page']):hover {
+  background: transparent;
+}
+.journey-step:not(a) {
+  cursor: default;
+}
+
+/* The two choices on the Skill Framework Setup start page are buttons styled like the module cards. */
+button.module-card {
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  button.module-card:hover:not(:disabled) {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+}
+
+/* Sign out stays pinned to the bottom of the sidebar, however long the menu above it is. */
+.sidebar .sidenav {
+  min-height: 0;
+  overflow-y: auto;
+}
+.sidebar .signout {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  flex-shrink: 0;
+  background: inherit;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+@media (max-width: 820px) {
+  .sidebar .signout {
+    position: static;
+    border-top: 0;
+    padding-top: 8px;
+    margin-top: 0;
+  }
+}
+
+.test-status {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.timer-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.timer-chip[data-low='true'] {
+  background: var(--warn-soft);
+  color: var(--warn);
 }

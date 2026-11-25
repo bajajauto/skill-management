@@ -5,20 +5,23 @@ import { setupProgress } from '../../lib/progress'
 
 export function Overview() {
   const state = useStore()
-  const { publication, dirtySincePublish, nodes, questions } = state
+  const { publication, nodes, questions } = state
   const { count, total } = setupProgress(state)
   const skills = nodes.filter((n) => n.type === 'skill').length
   const tasks = nodes.filter((n) => n.type === 'task').length
 
   return <div className="stack">
-    <section className="hero">
+    {/* Setting up a cohort is what this card is for; once it is live the cohort list shows its state. */}
+    {!publication && <section className="hero">
       <div className="hero-copy">
         <span className="hero-eyebrow">Framework status</span>
-        <h2 className="hero-title">{publication ? `Framework v${publication.version}${dirtySincePublish ? ' has unpublished changes' : ' is live'}` : 'Your framework is still in setup'}</h2>
+        <h2 className="hero-title">Your framework is still in setup</h2>
         <p className="muted">{skills} skills · {tasks} tasks · {questions.length} questions · {count} of {total} setup steps done</p>
         <a className="btn btn-primary" href="#/admin/framework" style={{ textDecoration: 'none' }}>Continue setup <ArrowRight size={15} /></a>
       </div>
-    </section>
+    </section>}
+
+    {publication && <p><a className="btn btn-primary" href="#/admin/framework" style={{ textDecoration: 'none' }}>Edit setup <ArrowRight size={15} /></a></p>}
 
     <section className="overview-explainer" aria-labelledby="td-admin-responsibility-title">
       <div className="overview-intro"><span className="overview-kicker">Your responsibility as TD Admin</span><h3 id="td-admin-responsibility-title">Configure and publish the business unit's assessment standard</h3><p className="muted">You define what will be assessed, how it will be rated and how results will be calculated. Complete the setup in sequence, validate every mapping, then publish the approved configuration.</p></div>

@@ -4,6 +4,7 @@ import { authRouter } from './routes/auth.js'
 import { meRouter } from './routes/me.js'
 import { teamRouter } from './routes/team.js'
 import { buhrRouter } from './routes/buhr.js'
+import { skipRouter } from './routes/skip.js'
 import { ensureSeed } from './lib/demoSetup.js'
 
 const app = express()
@@ -16,6 +17,7 @@ app.use('/api/auth', authRouter)
 app.use('/api/me', meRouter)
 app.use('/api/team', teamRouter)
 app.use('/api/buhr', buhrRouter)
+app.use('/api/skip', skipRouter)
 app.use('/api/cohorts', cohortsRouter)
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }))

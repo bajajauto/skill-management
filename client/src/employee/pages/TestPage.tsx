@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Check, ShieldAlert, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, Clock, ShieldAlert, X } from 'lucide-react'
 import { meApi } from '../../api'
 import { Button, ConfirmDialog, useToast } from '../../components/ui'
 import { useMe, usePublishedMe } from '../MeContext'
@@ -68,7 +68,7 @@ export function TestPage() {
           <h2 className="card-title">Before you begin</h2>
           <ul className="bullets">
             <li>
-              One test, {test.testLength} multiple-choice question{test.testLength === 1 ? '' : 's'}, no time limit.
+              One test, {test.testLength} multiple-choice question{test.testLength === 1 ? '' : 's'}, {test.testMinutes} minutes.
             </li>
             <li>It has a section for each skill. Each section is scored on its own, just as the separate skill tests were.</li>
             <li>You get one attempt this cycle, so find a quiet moment.</li>
@@ -98,6 +98,7 @@ export function TestPage() {
             <ul className="bullets">
               {fullscreenSupported() && <li>The test runs in full screen.</li>}
               <li>Switching tabs or windows{fullscreenSupported() ? ', leaving full screen,' : ''} taking a screenshot or printing counts as a strike, and the questions are hidden until you come back.</li>
+              <li>A timer counts down from {test.testMinutes} minutes once you start. It keeps running if you pause or reload, and the test is submitted automatically when it reaches zero.</li>
               <li>After 3 strikes the test is submitted automatically with the answers you have given so far.</li>
               <li>Copying is blocked, and every question carries your name and ID. Strikes are recorded and visible to your manager.</li>
             </ul>
@@ -161,7 +162,7 @@ function Runner({ test, watermark, onDone }: { test: TestStart; watermark: strin
 
   // One submit at a time: the strikes, the open-time check and the retry can all ask for it together.
   const submitting = useRef(false)
-  const submit = async (reason?: 'violations') => {
+  const submit = async (reason?: 'violations' | 'time') => {
     if (submitting.current) return
     submitting.current = true
     setBusy(true)
@@ -172,9 +173,26 @@ function Runner({ test, watermark, onDone }: { test: TestStart; watermark: strin
       setBusy(false)
       submitting.current = false
       // An automatic submit has no button to press again, so keep trying until it goes through.
-      if (reason === 'violations' && !(e instanceof Error && /already submitted/.test(e.message))) setTimeout(() => void submit(reason), 2000)
+      if (reason && !(e instanceof Error && /already submitted/.test(e.message))) setTimeout(() => void submit(reason), 2000)
     }
   }
+
+  // The countdown runs on the server's deadline, corrected for any difference between this clock and the server's.
+  const clockOffset = useRef(Date.parse(test.serverNow) - Date.now())
+  const msLeft = () => Date.parse(test.deadline) - (Date.now() + clockOffset.current)
+  const [secondsLeft, setSecondsLeft] = useState(() => Math.max(0, Math.ceil(msLeft() / 1000)))
+  useEffect(() => {
+    const tick = () => {
+      const s = Math.max(0, Math.ceil(msLeft() / 1000))
+      setSecondsLeft(s)
+      if (s === 0) void submit('time')
+    }
+    tick()
+    const t = setInterval(tick, 1000)
+    return () => clearInterval(t)
+    // The deadline never changes while the test is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const guard = useTestGuard({ attemptId: test.attemptId, maxViolations: test.maxViolations, initialCount: test.violations, onAutoSubmit: () => void submit('violations') })
 
@@ -215,8 +233,13 @@ function Runner({ test, watermark, onDone }: { test: TestStart; watermark: strin
           </div>
         </div>
       )}
-      <div className="strike-chip" data-hot={guard.count > 0} title="Times you left the test">
-        Strikes {Math.min(guard.count, test.maxViolations)}/{test.maxViolations}
+      <div className="test-status">
+        <div className="timer-chip" data-low={secondsLeft <= 300} role="timer" aria-label="Time left">
+          <Clock size={13} aria-hidden /> {String(Math.floor(secondsLeft / 60)).padStart(2, '0')}:{String(secondsLeft % 60).padStart(2, '0')}
+        </div>
+        <div className="strike-chip" data-hot={guard.count > 0} title="Times you left the test">
+          Strikes {Math.min(guard.count, test.maxViolations)}/{test.maxViolations}
+        </div>
       </div>
 
       <nav className="section-tabs" aria-label="Test sections">
@@ -309,6 +332,12 @@ function Result({ result }: { result: TestResult }) {
           <span>Overall {testText(attempt)}</span>
         </div>
       </section>
+
+      {attempt.timedOut && (
+        <p className="callout callout-warn" role="status">
+          <Clock size={15} aria-hidden /> Time ran out, so this test was submitted automatically with the answers you had given.
+        </p>
+      )}
 
       {attempt.violations > 0 && (
         <p className="callout callout-warn" role="status">

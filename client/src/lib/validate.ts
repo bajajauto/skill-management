@@ -64,9 +64,10 @@ export function validate(state: AppState): Issue[] {
   }
 
   // Scoring
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(config.calibrationDeadline ?? '')) add('error', 'scoring', 'calibration-deadline', 'Set the last day for skip-level calibration.')
   const { manager, test, weights } = config.scoring
   for (const [label, b] of [['Manager', manager], ['Test', test]] as const)
-    if (!(b.s1Max >= 0 && b.s1Max < b.s2Max && b.s2Max < 100))
+    if (!(b.s1Max >= 0 && b.s1Max < b.s2Max && b.s2Max < b.s3Max && b.s3Max < 100))
       add('error', 'scoring', `bands-${label}`, `${label} score bands must increase and stay below 100%.`)
   if (Object.values(weights).some((w) => !(w > 0))) add('error', 'scoring', 'weights', 'Difficulty weights must be greater than zero.')
 

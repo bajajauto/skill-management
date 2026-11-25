@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
-import { ChevronDown, FilePen, LayoutList, LogOut, Plus, Settings2, type LucideIcon } from 'lucide-react'
+import { FilePen, LayoutList, LogOut, Plus, Settings2, type LucideIcon } from 'lucide-react'
 import { Login } from './pages/Login'
 import { setApiUser, type User } from './api'
 import { EmployeeApp } from './employee/EmployeeApp'
-import { StoreProvider, useSaveStatus, useStoreMaybe } from './store'
+import { StoreProvider, useStoreMaybe } from './store'
 import { AppIcon, ToastProvider } from './components/ui'
-import { CohortsProvider, cohortLabel, useCohorts } from './cohorts/CohortsContext'
+import { CohortsProvider, isBlankDraft, useCohorts } from './cohorts/CohortsContext'
 import { useNewCohort } from './cohorts/useNewCohort'
-import { validate } from './lib/validate'
+import { SetupStart } from './pages/SetupStart'
 import { Home } from './pages/Home'
 import { Cohorts, type CohortView } from './pages/Cohorts'
 import { ADMIN_SECTIONS, TdAdmin } from './pages/TdAdmin'
@@ -19,35 +19,31 @@ const COHORT_VIEWS: { key: CohortView; label: string; icon: LucideIcon }[] = [
   { key: 'manage', label: 'Manage Cohorts', icon: Settings2 },
 ]
 
-type Route = { page: 'home' } | { page: 'cohorts'; view: CohortView } | { page: 'admin'; section: AdminSection }
+type Route = { page: 'home' } | { page: 'start' } | { page: 'cohorts'; view: CohortView } | { page: 'admin'; section: AdminSection }
 
 /** Hash routes: #/, #/admin/<section> (Skill Framework Setup) and #/admin/cohorts/<all|drafts|manage|new>. */
 function parseHash(): Route {
   const [page, second, third] = location.hash.replace(/^#\/?/, '').split('/')
   if (page !== 'admin') return { page: 'home' }
+  if (second === 'start') return { page: 'start' }
   if (second === 'cohorts') return { page: 'cohorts', view: COHORT_VIEWS.find((v) => v.key === third)?.key ?? 'all' }
   return { page: 'admin', section: ADMIN_SECTIONS.find((s) => s.key === second)?.key ?? 'overview' }
 }
 
-const SAVE_LABEL = { saved: 'Saved', saving: 'Saving…', error: "Couldn't save, will retry" } as const
 
 function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
   const isAdmin = user.role === 'td-admin'
   const [route, setRoute] = useState<Route>(parseHash)
-  const [setupOpen, setSetupOpen] = useState(() => parseHash().page === 'admin')
   const state = useStoreMaybe()
-  const save = useSaveStatus()
-  const { cohorts, current } = useCohorts()
+  const { cohorts } = useCohorts()
   const newCohort = useNewCohort()
-  const adminErrors = state ? validate(state).filter((i) => i.severity === 'error').length : 0
   const live = cohorts?.filter((c) => c.status === 'live') ?? []
-  const drafts = cohorts?.filter((c) => c.status === 'draft').length ?? 0
+  const drafts = cohorts?.filter((c) => c.status === 'draft' && !isBlankDraft(c)).length ?? 0
 
   useEffect(() => {
     const on = () => {
       const next = parseHash()
       setRoute(next)
-      if (next.page === 'admin') setSetupOpen(true)
       window.scrollTo({ top: 0 })
     }
     window.addEventListener('hashchange', on)
@@ -66,33 +62,11 @@ function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
             <AppIcon name="home" size={30} />
             Home
           </a>
-          {isAdmin && <button
-            type="button"
-            className="nav-item nav-group-title"
-            aria-expanded={setupOpen}
-            aria-controls="setup-subsections"
-            data-active={route.page === 'admin'}
-            onClick={() => setSetupOpen((open) => !open)}
-          >
-            <AppIcon name="skill-framework" size={30} />
-            Skill Framework Setup
-            {adminErrors > 0 && <span className="nav-dot" title={`${adminErrors} to fix`} />}
-            <ChevronDown className="nav-chevron" size={14} aria-hidden />
-          </button>}
-          {isAdmin && setupOpen && (
-            <div id="setup-subsections" className="nav-subitems" aria-label="Skill framework setup sections">
-              {ADMIN_SECTIONS.map((item) => (
-                <a
-                  key={item.key}
-                  href={`#/admin/${item.key}`}
-                  className="nav-subitem"
-                  aria-current={route.page === 'admin' && route.section === item.key ? 'page' : undefined}
-                >
-                  <AppIcon name={item.icon} size={25} />
-                  {item.label}
-                </a>
-              ))}
-            </div>
+          {isAdmin && (
+            <a href="#/admin/start" className="nav-item nav-group-title" data-active={route.page === 'admin' || route.page === 'start'}>
+              <AppIcon name="skill-framework" size={30} />
+              Skill Framework Setup
+            </a>
           )}
           {isAdmin && (
             <>
@@ -124,11 +98,6 @@ function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
             </>
           )}
         </nav>
-        {isAdmin && state && (
-          <p className="save" data-save={save} role="status" title={current ? cohortLabel(current) : undefined}>
-            {SAVE_LABEL[save]}
-          </p>
-        )}
         <div className="signout">
           <span className="demo-avatar">{user.initials}</span>
           <span className="signout-who">
@@ -143,6 +112,7 @@ function Shell({ user, onSignOut }: { user: User; onSignOut: () => void }) {
 
       <main className="main">
         {(route.page === 'home' || !isAdmin) && <Home />}
+        {route.page === 'start' && isAdmin && <SetupStart />}
         {route.page === 'cohorts' && isAdmin && <Cohorts view={route.view} />}
         {route.page === 'admin' && isAdmin && state && <TdAdmin section={route.section} onNavigate={(s) => (location.hash = `/admin/${s}`)} />}
         {route.page === 'admin' && isAdmin && !state && (

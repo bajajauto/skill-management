@@ -35,7 +35,7 @@ export const EMPLOYEES = {
     function: 'Manufacturing Engineering',
     location: 'Chakan, Pune',
     joined: '2016-02-01',
-    manager: 'Anita Deshmukh',
+    manager: 'Rohan Iyer',
     skipManager: 'Suresh Rao',
   },
   u3: {
@@ -55,10 +55,27 @@ export const EMPLOYEES = {
     manager: 'Meera Kulkarni',
     skipManager: 'Suresh Rao',
   },
+  u5: {
+    organization: 'BAL',
+    employeeId: 'BA-10412',
+    name: 'Rohan Iyer',
+    email: 'rohan.iyer@bajajauto.co.in',
+    jobLevel: 'M3',
+    buHead: 'Meera Kulkarni',
+    buhr: 'Priya Nair',
+    designation: 'Department Head, Manufacturing',
+    jobProfile: 'Manufacturing Section Manager',
+    businessUnit: 'Powertrain',
+    function: 'Manufacturing Engineering',
+    location: 'Chakan, Pune',
+    joined: '2012-08-20',
+    manager: 'Suresh Rao',
+    skipManager: 'Meera Kulkarni',
+  },
 }
 
 /** Direct reports per manager (user id -> employee ids). u1 is a real login; the rest are demo-only people. */
-export const TEAMS = { u2: ['u1', 'e2', 'e3', 'e4', 'e5', 'e6'], u3: ['e7', 'e8', 'e9'] }
+export const TEAMS = { u2: ['u1', 'e2', 'e3', 'e4', 'e5', 'e6'], u3: ['e7', 'e8', 'e9'], u5: ['u2'] }
 
 /** Users who can switch to the BUHR view: they see the whole business unit they belong to. */
 export const BUHRS = ['u3']
@@ -213,6 +230,9 @@ export const GENERATED = buildGenerated()
 /** Everyone who has no login but exists in the demo: hand-written reports plus the generated population. */
 export const PEOPLE = { ...ROSTER, ...GENERATED }
 
+/** Everyone whose skip-level manager is this person: employees in the demo and the generated population. */
+export const skipReportIds = (name) => [...Object.keys(EMPLOYEES), ...Object.keys(PEOPLE)].filter((id) => norm(profileOf(id)?.skipManager) === norm(name) && norm(name))
+
 export const profileOf = (id) => EMPLOYEES[id] ?? PEOPLE[id]?.profile ?? realProfile(id)
 
 const norm = (s) => String(s ?? '').trim().toLowerCase()
@@ -228,7 +248,7 @@ export const scopePeopleIds = (organization, businessUnits) => {
   })
 }
 
-export const CYCLE = { id: 'c-h2-fy26', name: 'H2 FY26 Skills Cycle', opens: '2026-10-01', due: '2026-11-15' }
+export const CYCLE = { id: 'c-h2-fy26', name: 'H2 FY26 Skills Cycle', opens: '2026-10-01', due: '2026-11-15', calibrationDeadline: '2026-11-30' }
 export const PREVIOUS_CYCLE = { id: 'c-h1-fy26', name: 'H1 FY26 Skills Cycle', closed: '2026-04-30' }
 
 /** Stable pseudo-random number in [0, 1) from a string, so demo numbers don't change between requests. */
@@ -243,7 +263,7 @@ export function rand(key) {
 
 export const percentToScore = (pct, bands) => {
   const p = Math.round(pct)
-  return p <= bands.s1Max ? 1 : p <= bands.s2Max ? 2 : 3
+  return p <= bands.s1Max ? 1 : p <= bands.s2Max ? 2 : p <= bands.s3Max ? 3 : 4
 }
 
 /** Manager's task-level Yes/No answers for one cluster, plus the derived and (maybe) calibrated score. */
@@ -257,18 +277,8 @@ export function demoManager(userId, skillId, taskIds, bands) {
   const yes = applicable.filter((a) => a.answer === 'yes').length
   const pct = applicable.length ? (yes / applicable.length) * 100 : null
   const original = pct == null ? 0 : percentToScore(pct, bands)
-  // Roughly one cluster in five gets nudged by the skip manager.
-  const shift = rand(`${userId}|${skillId}|cal`)
-  let calibrated = original
-  let reason = null
-  if (original && shift > 0.8) {
-    calibrated = Math.min(3, original + 1)
-    reason = 'Observed on recent line-trial; skip manager raised the rating.'
-  } else if (original && shift < 0.06) {
-    calibrated = Math.max(1, original - 1)
-    reason = 'Evidence not sufficient for the higher band; skip manager lowered the rating.'
-  }
-  return { answers, yes, applicable: applicable.length, pct, original, calibrated, reason, status: original ? 'calibrated' : 'pending' }
+  // The skip manager's calibration is applied on top by the snapshot; until then the manager's score stands.
+  return { answers, yes, applicable: applicable.length, pct, original, calibrated: original, reason: null, status: original ? 'calibrated' : 'pending' }
 }
 
 /** Last cycle's results for the growth comparison: usually a bit lower than today. */

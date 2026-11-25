@@ -16,13 +16,14 @@ export const defaultConfig = (): Config => ({
   ],
   scale: { type: 'binary', yesLabel: 'Yes', noLabel: 'No', allowNA: true },
   evidence: { always: false, lowest: true, highest: false },
+  calibrationDeadline: '',
   scoring: {
-    // 1 = 0-33%, 2 = 34-66%, 3 = 67-100% (architecture doc, rating scale)
-    manager: { s1Max: 33, s2Max: 66 },
-    // Placeholder from the FRD proficiency rubric: L1 up to 60, L2 61-85, L3 above 85
-    test: { s1Max: 60, s2Max: 85 },
-    courseTriggerBelow: 3,
-    progressionMin: 3,
+    // Four scores: 1 and 2 are Basic, 3 Intermediate, 4 Advanced. Each runs up to its maximum percentage.
+    manager: { s1Max: 25, s2Max: 50, s3Max: 75 },
+    test: { s1Max: 40, s2Max: 60, s3Max: 80 },
+    courseTriggerBelow: 4,
+    progressionMin: 4,
+    levelTargets: {},
     weights: { easy: 1, medium: 1.5, hard: 2 },
     missingInput: 'incomplete',
   },

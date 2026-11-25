@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { ArrowLeft, ArrowRight, Check } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowLeft, ArrowRight, Check, Lock } from 'lucide-react'
 import { AppIcon, Button, useToast, type AppIconName } from '../components/ui'
-import { useSaveNow, useSaveStatus, useStore } from '../store'
-import { setupProgress } from '../lib/progress'
+import { usePublish, useSaveNow, useSaveStatus, useStore } from '../store'
+import { validate } from '../lib/validate'
+import { lockedSteps, setupProgress } from '../lib/progress'
 import { Overview } from './admin/Overview'
 import { Framework } from './admin/Framework'
 import { Skills } from './admin/Skills'
@@ -42,6 +43,18 @@ const TITLE: Record<AdminSection, string> = {
 export function TdAdmin({ section, onNavigate }: { section: AdminSection; onNavigate: (s: AdminSection) => void }) {
   const state = useStore()
   const { done } = setupProgress(state)
+  const locked = lockedSteps(state)
+  const lock = locked[section]
+  // The furthest step reached in this visit; the bar lets you go back to any step up to there.
+  const at = ADMIN_SECTIONS.findIndex((x) => x.key === section)
+  const [furthest, setFurthest] = useState(at)
+  useEffect(() => setFurthest((m) => Math.max(m, at)), [at])
+
+  // Typing a later step's address doesn't skip the process: go back to the step still to be finished.
+  useEffect(() => {
+    if (lock) location.hash = `/admin/${lock.first}`
+  }, [lock])
+  if (lock) return null
 
   return (
     <>
@@ -50,16 +63,31 @@ export function TdAdmin({ section, onNavigate }: { section: AdminSection; onNavi
         <p className="muted">{BLURB[section]}</p>
       </header>
       <nav className="journey" aria-label="Setup steps">
-        {ADMIN_SECTIONS.map((s) => {
-          const complete = s.key !== 'overview' && s.key !== 'publish' && done[s.key]
-          return (
-            <a key={s.key} href={`#/admin/${s.key}`} className="journey-step" data-done={complete} aria-current={section === s.key ? 'page' : undefined}>
+        {ADMIN_SECTIONS.map((s, n) => {
+          const blocked = locked[s.key]
+          const current = s.key === section
+          // A tick means this step is finished and you have already been through it, so a cohort that is already
+          // complete doesn't open with every step ticked: they fill in as you go.
+          const complete = s.key !== 'overview' && s.key !== 'publish' && done[s.key] && n <= furthest && !current
+          // You can step back to anywhere you have already been; steps ahead open only through Save and next.
+          const reachable = !blocked && n <= furthest && !current
+          const inner = (
+            <>
               <span className="journey-mark">
                 <AppIcon name={s.icon} size={25} />
-                {complete && <span className="journey-done"><Check size={9} strokeWidth={3} /></span>}
+                {blocked ? <span className="journey-done"><Lock size={9} strokeWidth={3} /></span> : complete && <span className="journey-done"><Check size={9} strokeWidth={3} /></span>}
               </span>
               {s.label}
+            </>
+          )
+          return reachable ? (
+            <a key={s.key} href={`#/admin/${s.key}`} className="journey-step" data-done={complete}>
+              {inner}
             </a>
+          ) : (
+            <span key={s.key} className="journey-step" data-done={complete} aria-current={current ? 'page' : undefined} aria-disabled={blocked ? 'true' : undefined} title={blocked?.message}>
+              {inner}
+            </span>
           )
         })}
       </nav>
@@ -78,27 +106,46 @@ export function TdAdmin({ section, onNavigate }: { section: AdminSection; onNavi
 
 const SAVE_TEXT = { saved: 'All changes saved', saving: 'Saving…', error: "Couldn't save yet" } as const
 
-/** Back and "Save and next" at the foot of every step. Edits auto-save; this writes them straight away and moves on. */
+/** Back and "Save and next" (just "Next" on the overview) at the foot of every step. Edits auto-save; this writes them straight away and moves on. */
 function StepFooter({ section, onNavigate }: { section: AdminSection; onNavigate: (s: AdminSection) => void }) {
   const saveNow = useSaveNow()
+  const publishNow = usePublish()
+  const state = useStore()
   const save = useSaveStatus()
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const i = ADMIN_SECTIONS.findIndex((s) => s.key === section)
   const prev = ADMIN_SECTIONS[i - 1]
   const next = ADMIN_SECTIONS[i + 1]
+  // The last step also releases the setup: finishing with changes waiting would leave them unpublished.
+  const toPublish = !next && (state.publication === null || state.dirtySincePublish)
 
   const saveAndNext = async () => {
+    // The overview has nothing to save: it just moves on.
+    if (section === 'overview' && next) {
+      onNavigate(next.key)
+      return
+    }
+    if (toPublish && validate(state).some((x) => x.severity === 'error')) {
+      toast('Resolve the errors above before publishing.', 'error')
+      return
+    }
     setBusy(true)
     try {
-      await saveNow()
+      if (toPublish) await publishNow()
+      else await saveNow()
     } catch {
-      toast("Couldn't save your changes. Try again.", 'error')
+      toast(toPublish ? "Couldn't publish. Try again." : "Couldn't save your changes. Try again.", 'error')
       setBusy(false)
       return
     }
     setBusy(false)
-    toast('Saved')
+    // This step still has something to finish, so the next one stays closed.
+    if (next && lockedSteps(state)[next.key]) {
+      toast('Saved. Finish this step to move on to the next.')
+      return
+    }
+    toast(toPublish ? `Published version ${(state.publication?.version ?? 0) + 1}` : 'Saved')
     // The last step has nowhere further in the setup, so finish at the cohort list.
     if (next) onNavigate(next.key)
     else location.hash = '/admin/cohorts/all'
@@ -112,18 +159,20 @@ function StepFooter({ section, onNavigate }: { section: AdminSection; onNavigate
             <ArrowLeft size={14} /> Back
           </a>
         ) : null}
-        <span className="muted" data-save={save} role="status">
-          {SAVE_TEXT[save]}
-        </span>
+        {section !== 'overview' && (
+          <span className="muted" data-save={save} role="status">
+            {SAVE_TEXT[save]}
+          </span>
+        )}
       </div>
       <Button variant="primary" disabled={busy} onClick={saveAndNext}>
         {next ? (
           <>
-            Save and next <ArrowRight size={14} />
+            {section === 'overview' ? 'Next' : 'Save and next'} <ArrowRight size={14} />
           </>
         ) : (
           <>
-            Save and finish <Check size={14} />
+            {toPublish ? 'Save and publish' : 'Save and finish'} <Check size={14} />
           </>
         )}
       </Button>

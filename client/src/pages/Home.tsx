@@ -2,7 +2,7 @@ import { ArrowRight } from 'lucide-react'
 import { AppIcon, type AppIconName } from '../components/ui'
 
 const modules = [
-  { title: 'Skill Framework Setup', description: 'Define business unit skills, rating scales, questions, scoring rules and publish the assessment standard.', icon: 'skill-framework', href: '#/admin/overview', status: 'Available', color: 'var(--tile-sage)' },
+  { title: 'Skill Framework Setup', description: 'Define business unit skills, rating scales, questions, scoring rules and publish the assessment standard.', icon: 'skill-framework', href: '#/admin/start', status: 'Available', color: 'var(--tile-sage)' },
   { title: 'Talent Insights', description: 'View capability coverage, proficiency distribution, critical gaps and department trends.', icon: 'talent-insights', status: 'Coming soon', color: 'var(--tile-sky)' },
   { title: 'Assessment Cycles', description: 'Create assessment periods, assign employees and track manager and employee completion.', icon: 'assessment-cycles', status: 'Coming soon', color: 'var(--tile-sand)' },
   { title: 'Learning Actions', description: 'Connect identified skill gaps to courses, development plans and follow-up assessments.', icon: 'learning-actions', status: 'Coming soon', color: 'var(--tile-lilac)' },

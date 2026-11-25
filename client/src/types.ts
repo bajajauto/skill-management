@@ -38,17 +38,20 @@ export interface Question {
   active: boolean
 }
 
-/** Percent bands that convert to a 0-3 score. 0 is reserved for "not assessed". */
+/** Percent bands that convert to a 1-4 score (1 and 2 Basic, 3 Intermediate, 4 Advanced). 0 is reserved for "not assessed". */
 export interface Bands {
   s1Max: number
   s2Max: number
+  s3Max: number
 }
 
 export interface ScoringConfig {
   manager: Bands
   test: Bands
-  courseTriggerBelow: 1 | 2 | 3
-  progressionMin: 1 | 2 | 3
+  courseTriggerBelow: 1 | 2 | 3 | 4
+  progressionMin: 1 | 2 | 3 | 4
+  /** A different target for a proficiency level, by level id. Levels not listed use `progressionMin`. */
+  levelTargets: Record<string, 1 | 2 | 3 | 4>
   weights: Record<Difficulty, number>
   missingInput: 'incomplete' | 'treat-as-zero'
 }
@@ -79,6 +82,8 @@ export interface Config {
   levels: Level[]
   scale: Scale
   evidence: EvidenceRule
+  /** Last day (YYYY-MM-DD) the skip-level manager can calibrate. Employees see their manager's scores after it. */
+  calibrationDeadline: string
   scoring: ScoringConfig
 }
 

@@ -5,6 +5,7 @@ import {
   BarChart3,
   ClipboardCheck,
   Contact,
+  Scale,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -16,7 +17,7 @@ import {
 } from 'lucide-react'
 import type { User } from '../api'
 import { ToastProvider } from '../components/ui'
-import { MeProvider } from './MeContext'
+import { MeProvider, useMe } from './MeContext'
 import { Dashboard } from './pages/Dashboard'
 import { SkillProfile } from './pages/SkillProfile'
 import { Assessments } from './pages/Assessments'
@@ -27,8 +28,10 @@ import { TeamPage, type TeamRoute } from '../team/TeamPage'
 import { TeamCardDetail, TeamCards } from '../team/pages/TeamCards'
 import { BuProvider, useBu } from '../buhr/BuContext'
 import { scopeLabel } from '../buhr/logic'
-import { evaluationOf } from './logic'
+import { evaluationOf, fmtDate } from './logic'
 import { BuPage, type BuRoute } from '../buhr/BuPage'
+import { SkipProvider, useSkip, calibrationOf } from '../skip/SkipContext'
+import { SkipPage, type SkipRoute } from '../skip/SkipPage'
 
 export type EmpRoute =
   | { page: 'dashboard' }
@@ -39,6 +42,7 @@ export type EmpRoute =
   | { page: 'team'; team: TeamRoute }
   | { page: 'cards'; id?: string }
   | { page: 'bu'; bu: BuRoute }
+  | { page: 'calibration'; skip: SkipRoute }
 
 /**
  * Hash routes: #/, #/profile, #/assessments[/self|/tests], #/reflection, #/card,
@@ -62,6 +66,8 @@ function parse(): EmpRoute {
       return { page: 'team', team: { view: a === 'validations' ? 'validations' : a === 'tracking' ? 'tracking' : 'overview' } }
     case 'cards':
       return { page: 'cards', id: a }
+    case 'calibration':
+      return { page: 'calibration', skip: a ? { view: 'person', empId: a } : { view: 'list' } }
     case 'bu':
       if ((a === 'person' || a === 'card') && b) return { page: 'bu', bu: { view: a, id: b } }
       return { page: 'bu', bu: { view: a === 'completion' || a === 'skills' || a === 'employees' || a === 'exceptions' || a === 'cards' ? a : 'overview' } }
@@ -99,6 +105,28 @@ function TeamBadge() {
   ) : null
 }
 
+/** Tells an employee why their manager's scores are not showing yet, until calibration closes. */
+function ManagerScoresNotice() {
+  const { me } = useMe()
+  if (!me.calibration?.managerHidden) return null
+  return (
+    <p className="callout" role="status">
+      Your manager's scores are being reviewed by your skip-level manager. They will be shown to you after {fmtDate(me.calibration.deadline)}.
+    </p>
+  )
+}
+
+/** Count of people whose manager has evaluated them and who still wait on the skip-level review. */
+function CalibrationBadge() {
+  const { members } = useSkip()
+  const n = members?.filter((m) => calibrationOf(m.snapshot).state === 'todo').length ?? 0
+  return n > 0 ? (
+    <span className="nav-count" title={`${n} waiting for your review`}>
+      {n}
+    </span>
+  ) : null
+}
+
 /** Sits above everything for a BUHR: switches between their own manager screens and the business-unit tracking. */
 function ViewRibbon({ inBu }: { inBu: boolean }) {
   const { data } = useBu()
@@ -128,6 +156,7 @@ function ViewRibbon({ inBu }: { inBu: boolean }) {
 export function EmployeeApp({ user, onSignOut }: { user: User; onSignOut: () => void }) {
   const isBuhr = user.role === 'buhr'
   const hasTeam = user.role === 'manager' || isBuhr
+  const isSkip = user.skipLevel === true
   const [route, setRoute] = useState<EmpRoute>(parse)
 
   useEffect(() => {
@@ -182,6 +211,13 @@ export function EmployeeApp({ user, onSignOut }: { user: User; onSignOut: () => 
                       <Contact size={20} aria-hidden />
                       Team Skill Cards
                     </a>
+                    {isSkip && (
+                      <a href="#/calibration" className="nav-item" aria-current={route.page === 'calibration' ? 'page' : undefined}>
+                        <Scale size={20} aria-hidden />
+                        Calibration
+                        <CalibrationBadge />
+                      </a>
+                    )}
                   </>
                 )}
               </>
@@ -199,7 +235,8 @@ export function EmployeeApp({ user, onSignOut }: { user: User; onSignOut: () => 
           </div>
         </aside>
         <main className="main">
-          <div className="page" key={route.page + (route.page === 'assessments' ? route.tab : route.page === 'team' ? route.team.view : route.page === 'bu' ? route.bu.view : route.page === 'cards' ? (route.id ?? 'list') : '')}>
+          <div className="page" key={route.page + (route.page === 'assessments' ? route.tab : route.page === 'team' ? route.team.view : route.page === 'bu' ? route.bu.view : route.page === 'cards' ? (route.id ?? 'list') : route.page === 'calibration' ? (route.skip.view === 'person' ? route.skip.empId : 'list') : '')}>
+            {['dashboard', 'profile', 'assessments', 'reflection', 'card'].includes(route.page) && <ManagerScoresNotice />}
             {route.page === 'dashboard' && <Dashboard />}
             {route.page === 'profile' && <SkillProfile />}
             {route.page === 'assessments' && <Assessments tab={route.tab} />}
@@ -208,13 +245,15 @@ export function EmployeeApp({ user, onSignOut }: { user: User; onSignOut: () => 
             {route.page === 'team' && hasTeam && <TeamPage route={route.team} />}
             {route.page === 'cards' && hasTeam && (route.id ? <TeamCardDetail id={route.id} /> : <TeamCards />)}
             {route.page === 'bu' && isBuhr && <BuPage route={route.bu} />}
+            {route.page === 'calibration' && isSkip && <SkipPage route={route.skip} />}
           </div>
         </main>
       </div>
     </>
   )
 
-  const withTeam = hasTeam ? <TeamProvider>{shell}</TeamProvider> : shell
+  const withSkip = isSkip ? <SkipProvider>{shell}</SkipProvider> : shell
+  const withTeam = hasTeam ? <TeamProvider>{withSkip}</TeamProvider> : withSkip
   return (
     <ToastProvider>
       <MeProvider>{isBuhr ? <BuProvider>{withTeam}</BuProvider> : withTeam}</MeProvider>

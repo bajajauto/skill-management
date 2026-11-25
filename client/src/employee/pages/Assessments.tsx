@@ -66,11 +66,11 @@ function Overview({ m }: { m: PublishedMe }) {
     {
       title: 'Manager evaluation',
       body: `${m.employee.manager} evaluates you once, skill by skill, on which tasks you can perform. Your skip manager reviews the rating.`,
-      status: ev.state === 'done' ? 'Complete' : ev.state === 'progress' ? 'In progress' : 'Not started',
-      tone: ev.state === 'done' ? 'good' : ev.state === 'progress' ? 'warn' : 'neutral',
+      status: m.calibration.managerHidden ? 'Under review' : ev.state === 'done' ? 'Complete' : ev.state === 'progress' ? 'In progress' : 'Not started',
+      tone: m.calibration.managerHidden ? 'neutral' : ev.state === 'done' ? 'good' : ev.state === 'progress' ? 'warn' : 'neutral',
       value: s.managerDone,
       max: m.clusters.length,
-      cta: 'See results',
+      cta: m.calibration.managerHidden ? `Results after ${fmtDate(m.calibration.deadline)}` : 'See results',
       href: '#/profile',
     },
     {

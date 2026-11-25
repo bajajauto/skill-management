@@ -77,7 +77,7 @@ export function PersonView({ member, backHref, backLabel, canValidate }: { membe
                   </td>
                   <td>
                     <ScoreChip score={managerScore(c)} />
-                    <span className="muted"> {managerScore(c) ? (c.manager.applicable ? `${outOf(c.manager.yes, c.manager.applicable)} tasks` : outOf(c.manager.calibrated, 3)) : 'Pending'}</span>
+                    <span className="muted"> {managerScore(c) ? (c.manager.applicable ? `${outOf(c.manager.yes, c.manager.applicable)} tasks` : outOf(c.manager.calibrated, 4)) : 'Pending'}</span>
                   </td>
                   <td>
                     <ScoreChip score={testScore(c)} />

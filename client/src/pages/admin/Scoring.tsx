@@ -20,7 +20,7 @@ export function Scoring() {
       <ReviewChoice area="scoring" subject="scoring rules" />
       <Card
         title="Score bands"
-        description="Convert a 0–100% result into a 0–3 proficiency score. 0 is reserved for “not assessed”, so scored results are always 1–3."
+        description="Convert a 0–100% result into a 1–4 proficiency score: 1 and 2 are Basic, 3 is Intermediate and 4 is Advanced. 0 is reserved for “not assessed”."
       >
         <div className="bands">
           <BandEditor
@@ -41,8 +41,33 @@ export function Scoring() {
             value={s.progressionMin}
             // The same bar decides gaps and clearing, so the older separate gap threshold is kept in step with it.
             onChange={(v) => set({ progressionMin: v, courseTriggerBelow: v })}
-            options={[1, 2, 3].map((v) => ({ value: v as 1 | 2 | 3, label: String(v) }))}
+            options={[1, 2, 3, 4].map((v) => ({ value: v as 1 | 2 | 3 | 4, label: String(v) }))}
           />
+        </Field>
+        <Field label="A different target for a level" hint="Optional. Where a proficiency level needs a higher or lower bar than the one above, set it here.">
+          <div className="stack-xs">
+            {config.levels.map((l) => (
+              <label key={l.id} className="row-between">
+                <span>{l.name}</span>
+                <select
+                  className="input"
+                  style={{ width: 'auto' }}
+                  value={s.levelTargets?.[l.id] ?? ''}
+                  onChange={(e) => {
+                    const { [l.id]: _drop, ...rest } = s.levelTargets ?? {}
+                    set({ levelTargets: e.target.value ? { ...rest, [l.id]: Number(e.target.value) as 1 | 2 | 3 | 4 } : rest })
+                  }}
+                >
+                  <option value="">Same as above ({s.progressionMin})</option>
+                  {[1, 2, 3, 4].map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
         </Field>
         <Field label="When a score is missing" hint="Strict rule: no gap decision fires until both inputs exist, unless you choose otherwise.">
           <Segmented
@@ -53,6 +78,19 @@ export function Scoring() {
               { value: 'incomplete', label: 'Mark incomplete and wait' },
               { value: 'treat-as-zero', label: 'Treat as 0' },
             ]}
+          />
+        </Field>
+      </Card>
+
+      <Card title="Skip-level calibration" description="The skip-level manager can review and change their reports' manager scores up to this date. Until the end of that day employees do not see their manager's scores. After it, every score is shown, as given or as calibrated.">
+        <Field label="Calibration deadline" htmlFor="cal-deadline" hint="The last day calibration is open.">
+          <input
+            id="cal-deadline"
+            className="input"
+            style={{ width: 'auto' }}
+            type="date"
+            value={config.calibrationDeadline ?? ''}
+            onChange={(e) => dispatch({ type: 'config', update: (c) => ({ ...c, calibrationDeadline: e.target.value }) })}
           />
         </Field>
       </Card>
@@ -80,7 +118,12 @@ export function Scoring() {
 
 function BandEditor({ title, hint, bands, onChange }: { title: string; hint: string; bands: Bands; onChange: (b: Bands) => void }) {
   const clamp = (n: number) => Math.max(0, Math.min(99, Math.round(Number.isFinite(n) ? n : 0)))
-  const invalid = !(bands.s1Max < bands.s2Max && bands.s2Max < 100)
+  const invalid = !(bands.s1Max < bands.s2Max && bands.s2Max < bands.s3Max && bands.s3Max < 100)
+  const rows = [
+    { score: 1, name: 'Basic', key: 's1Max', from: 0 },
+    { score: 2, name: 'Basic', key: 's2Max', from: bands.s1Max + 1 },
+    { score: 3, name: 'Intermediate', key: 's3Max', from: bands.s2Max + 1 },
+  ] as const
   return (
     <div className="band-editor">
       <div className="band-editor-head">
@@ -90,23 +133,21 @@ function BandEditor({ title, hint, bands, onChange }: { title: string; hint: str
       <div className="band-bar" aria-hidden>
         <span style={{ flexGrow: bands.s1Max + 1 }} data-score="1" />
         <span style={{ flexGrow: Math.max(0, bands.s2Max - bands.s1Max) }} data-score="2" />
-        <span style={{ flexGrow: Math.max(0, 100 - bands.s2Max) }} data-score="3" />
+        <span style={{ flexGrow: Math.max(0, bands.s3Max - bands.s2Max) }} data-score="3" />
+        <span style={{ flexGrow: Math.max(0, 100 - bands.s3Max) }} data-score="4" />
       </div>
-      <p className="band-instruction">Set the highest percentage for Scores 1 and 2. The next range updates automatically.</p>
+      <p className="band-instruction">Set the highest percentage for Scores 1, 2 and 3. The next range updates automatically.</p>
       <div className="band-rows">
+        {rows.map((r) => (
+          <div key={r.score} className="band-row">
+            <span className="band-chip" data-score={r.score}>{r.score}</span>
+            <span className="band-range-label"><strong>Score {r.score} · {r.name}</strong><small>{r.from}% through</small></span>
+            <label className="threshold-input"><input type="number" min={0} max={99} aria-label={`${title}: score ${r.score} maximum percentage`} value={bands[r.key]} onChange={(e) => onChange({ ...bands, [r.key]: clamp(e.target.valueAsNumber) })} /><span>% max</span></label>
+          </div>
+        ))}
         <div className="band-row">
-          <span className="band-chip" data-score="1">1</span>
-          <span className="band-range-label"><strong>Score 1</strong><small>0% through</small></span>
-          <label className="threshold-input"><input type="number" min={0} max={99} aria-label={`${title}: score 1 maximum percentage`} value={bands.s1Max} onChange={(e) => onChange({ ...bands, s1Max: clamp(e.target.valueAsNumber) })} /><span>% max</span></label>
-        </div>
-        <div className="band-row">
-          <span className="band-chip" data-score="2">2</span>
-          <span className="band-range-label"><strong>Score 2</strong><small>{bands.s1Max + 1}% through</small></span>
-          <label className="threshold-input"><input type="number" min={0} max={99} aria-label={`${title}: score 2 maximum percentage`} value={bands.s2Max} onChange={(e) => onChange({ ...bands, s2Max: clamp(e.target.valueAsNumber) })} /><span>% max</span></label>
-        </div>
-        <div className="band-row">
-          <span className="band-chip" data-score="3">3</span>
-          <span className="band-range-label"><strong>Score 3</strong><small>{bands.s2Max + 1}% through 100%</small></span>
+          <span className="band-chip" data-score="4">4</span>
+          <span className="band-range-label"><strong>Score 4 · Advanced</strong><small>{bands.s3Max + 1}% through 100%</small></span>
           <span className="auto-value">Calculated automatically</span>
         </div>
       </div>

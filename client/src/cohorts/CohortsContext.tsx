@@ -57,5 +57,8 @@ export function CohortsProvider({ children }: { children: ReactNode }) {
 
 export const useCohorts = () => useContext(CohortsCtx)
 
+/** A draft where nothing has been chosen or added yet. It isn't a real draft until an organization or business unit is set, so lists don't show it. */
+export const isBlankDraft = (c: CohortSummary) => c.status === 'draft' && !c.organization && !c.businessUnit && c.skills === 0 && c.questions === 0
+
 export const cohortLabel = (c: Pick<CohortSummary, 'organization' | 'businessUnit'>) =>
   [c.organization || 'No organization', c.businessUnit || 'No business unit'].join(' · ')

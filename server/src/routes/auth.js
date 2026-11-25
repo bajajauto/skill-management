@@ -8,6 +8,7 @@ const USERS = [
   { id: 'u1', name: 'Asha Rao', initials: 'AR', role: 'employee', roleLabel: 'Employee', email: 'asha.rao@bajajauto.co.in', password: 'demo@123' },
   { id: 'u2', name: 'Vikram Shah', initials: 'VS', role: 'manager', roleLabel: 'Manager', email: 'vikram.shah@bajajauto.co.in', password: 'demo@123' },
   { id: 'u3', name: 'Priya Nair', initials: 'PN', role: 'buhr', roleLabel: 'BU HR', email: 'priya.nair@bajajauto.co.in', password: 'demo@123' },
+  { id: 'u5', name: 'Rohan Iyer', initials: 'RI', role: 'manager', roleLabel: 'Skip-level Manager', skipLevel: true, email: 'rohan.iyer@bajajauto.co.in', password: 'demo@123' },
   { id: 'u4', name: 'TD Administrator', initials: 'TD', role: 'td-admin', roleLabel: 'TD Admin', email: 'td.admin@bajajauto.co.in', password: 'demo@123' },
 ]
 

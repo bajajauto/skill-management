@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { ArrowRight, Plus } from 'lucide-react'
+import { ArrowRight, Pencil, Plus, Trash2 } from 'lucide-react'
 import { cohortApi } from '../api'
 import { Badge, Button, Card, ConfirmDialog, Empty, useToast } from '../components/ui'
-import { cohortLabel, useCohorts } from '../cohorts/CohortsContext'
+import { cohortLabel, isBlankDraft, useCohorts } from '../cohorts/CohortsContext'
 import { useNewCohort } from '../cohorts/useNewCohort'
 import type { CohortSummary } from '../types'
 
@@ -32,7 +32,7 @@ function Identity({ c }: { c: CohortSummary }) {
 }
 
 /** Simple read-only table used by All and Drafts. `kind` decides which columns make sense. */
-function CohortTable({ rows, kind }: { rows: CohortSummary[]; kind: 'live' | 'completed' | 'draft' }) {
+function CohortTable({ rows, kind, onDelete }: { rows: CohortSummary[]; kind: 'live' | 'completed' | 'draft'; onDelete?: (c: CohortSummary) => void }) {
   const { select } = useCohorts()
   return (
     <div className="table-wrap">
@@ -71,9 +71,20 @@ function CohortTable({ rows, kind }: { rows: CohortSummary[]; kind: 'live' | 'co
               <td>{c.tasks}</td>
               <td>{c.questions}</td>
               <td className="col-actions">
-                <a className="btn btn-sm" href="#/admin/overview" onClick={() => select(c.id)}>
-                  {kind === 'draft' ? 'Continue setup' : 'Open'} <ArrowRight size={13} />
-                </a>
+                {kind === 'draft' ? (
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                    <a className="icon-btn" href="#/admin/overview" onClick={() => select(c.id)} aria-label="Continue this draft" title="Continue this draft">
+                      <Pencil size={16} aria-hidden />
+                    </a>
+                    <button type="button" className="icon-btn" onClick={() => onDelete?.(c)} aria-label="Delete this draft" title="Delete this draft">
+                      <Trash2 size={16} aria-hidden />
+                    </button>
+                  </div>
+                ) : (
+                  <a className="btn btn-sm" href="#/admin/overview" onClick={() => select(c.id)}>
+                    Open <ArrowRight size={13} />
+                  </a>
+                )}
               </td>
             </tr>
           ))}
@@ -89,7 +100,7 @@ function AllView({ cohorts }: { cohorts: CohortSummary[] }) {
   return (
     <>
       <Card title={`Live (${live.length})`} description="Published and in use. Employees in these cohorts are being assessed against them.">
-        {live.length ? <CohortTable rows={live} kind="live" /> : <p className="muted">Nothing is live right now.{cohorts.some((c) => c.status === 'draft') ? ' Finish a draft and publish it.' : ''}</p>}
+        {live.length ? <CohortTable rows={live} kind="live" /> : <p className="muted">Nothing is live right now.{cohorts.some((c) => c.status === 'draft' && !isBlankDraft(c)) ? ' Finish a draft and publish it.' : ''}</p>}
       </Card>
       <Card title={`Completed (${completed.length})`} description="Cycle finished. Results and history are kept, but employees are no longer assessed against these.">
         {completed.length ? <CohortTable rows={completed} kind="completed" /> : <p className="muted">No cohort has been completed yet.</p>}
@@ -107,12 +118,33 @@ function NewCohortButton() {
   )
 }
 
-function DraftsView({ cohorts }: { cohorts: CohortSummary[] }) {
-  const drafts = cohorts.filter((c) => c.status === 'draft')
+function DraftsView({ cohorts, refresh }: { cohorts: CohortSummary[]; refresh: () => Promise<void> }) {
+  const toast = useToast()
+  const [deleting, setDeleting] = useState<CohortSummary | null>(null)
+  const drafts = cohorts.filter((c) => c.status === 'draft' && !isBlankDraft(c))
+  const remove = async () => {
+    if (!deleting) return
+    try {
+      await cohortApi.remove(deleting.id)
+      toast('Draft deleted')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not delete', 'error')
+    }
+    await refresh()
+  }
   return (
     <Card title={`Drafts (${drafts.length})`}>
+      <ConfirmDialog
+        open={deleting !== null}
+        danger
+        title="Delete this draft?"
+        confirmLabel="Delete"
+        message={deleting ? `${cohortLabel(deleting)} and everything set up in it is removed. This cannot be undone.` : ''}
+        onConfirm={remove}
+        onClose={() => setDeleting(null)}
+      />
       {drafts.length ? (
-        <CohortTable rows={drafts} kind="draft" />
+        <CohortTable rows={drafts} kind="draft" onDelete={setDeleting} />
       ) : (
         <Empty title="No drafts">
           Every cohort has been published.
@@ -240,7 +272,7 @@ export function Cohorts({ view }: { view: CohortView }) {
         ) : (
           <>
             {view === 'all' && <AllView cohorts={cohorts} />}
-            {view === 'drafts' && <DraftsView cohorts={cohorts} />}
+            {view === 'drafts' && <DraftsView cohorts={cohorts} refresh={refresh} />}
             {view === 'manage' && <ManageView cohorts={cohorts} refresh={refresh} />}
           </>
         )}

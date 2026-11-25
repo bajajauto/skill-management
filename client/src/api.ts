@@ -25,6 +25,8 @@ export interface User {
   role: 'employee' | 'manager' | 'buhr' | 'td-admin'
   roleLabel: string
   email: string
+  /** Also reviews the evaluations of the people one level below. */
+  skipLevel?: boolean
 }
 export type DemoUser = User & { password: string }
 /** An imported real person, found by name or employee id. */
@@ -37,7 +39,7 @@ export const meApi = {
   get: () => json<MeSnapshot>(request('/me')),
   saveSelf: (ratings: Record<string, { rating: number; comment: string }>, submit: boolean) => json<MeSnapshot>(request('/me/self-assessment', send('PUT', { ratings, submit }))),
   startTest: () => json<TestStart>(request('/me/tests/start', send('POST'))),
-  submitTest: (attemptId: string, answers: Record<string, string>, reason?: 'violations') => json<TestResult>(request(`/me/tests/attempts/${attemptId}/submit`, send('POST', { answers, reason }))),
+  submitTest: (attemptId: string, answers: Record<string, string>, reason?: 'violations' | 'time') => json<TestResult>(request(`/me/tests/attempts/${attemptId}/submit`, send('POST', { answers, reason }))),
   reportViolation: (attemptId: string, type: string) => json<{ count: number; max: number; autoSubmit: boolean }>(request(`/me/tests/attempts/${attemptId}/violation`, send('POST', { type }))),
   getAttempt: (attemptId: string) => json<TestResult>(request(`/me/tests/attempts/${attemptId}`)),
   saveReflection: (r: Omit<Reflection, 'savedAt'>) => json<Reflection>(request('/me/reflection', send('PUT', r))),
@@ -49,6 +51,12 @@ export const teamApi = {
   saveEvaluation: (empId: string, answers: Record<string, TaskAnswer>, comments: Record<string, string>, submit: boolean) =>
     json<{ snapshot: MeSnapshot }>(request('/team/' + empId + '/evaluation', send('PUT', { answers, comments, submit }))),
   remind: (empId: string) => json<{ remindedAt: string }>(request(`/team/${empId}/remind`, send('POST'))),
+}
+
+export const skipApi = {
+  list: () => json<{ members: Omit<TeamMember, 'remindedAt'>[] }>(request('/skip')),
+  calibrate: (empId: string, body: { agreeAll?: boolean; skills?: Record<string, { score: number | null; reason: string }> }) =>
+    json<{ snapshot: MeSnapshot }>(request(`/skip/${empId}/calibration`, send('PUT', body))),
 }
 
 export const buhrApi = {
