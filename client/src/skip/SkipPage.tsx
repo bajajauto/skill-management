@@ -65,7 +65,9 @@ export function SkipPage({ route }: { route: SkipRoute }) {
                     </a>
                     <small className="muted">Manager: {e.manager}</small>
                   </span>
-                  <span className="muted">{cal.evaluated ? `${outOf(cal.evaluated, m.snapshot.clusters.length)} skills evaluated` : 'No evaluation yet'}</span>
+                  <span className="muted">
+                    {cal.evaluated ? `Manager evaluated ${outOf(cal.evaluated, m.snapshot.clusters.length)} skills · you reviewed ${cal.reviewed}` : 'Manager has not evaluated yet'}
+                  </span>
                   <Badge tone={s.tone}>
                     {cal.state === 'done' && <Check size={11} strokeWidth={3} />}
                     {cal.state === 'done' && cal.changed > 0 ? `${s.label} · ${cal.changed} changed` : s.label}
