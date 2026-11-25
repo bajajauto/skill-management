@@ -3,7 +3,10 @@ import { skipApi } from '../api'
 import type { MeSnapshot, TeamMember } from '../employee/types'
 
 /** The people one level below the signed-in skip-level manager, with their managers' evaluations. */
-export type SkipMember = Omit<TeamMember, 'remindedAt'>
+export type SkipMember = Omit<TeamMember, 'remindedAt'> & {
+  /** True once the manager has evaluated every skill. Until then no scores are sent. */
+  ready: boolean
+}
 
 interface Ctx {
   members: SkipMember[] | null
@@ -44,7 +47,9 @@ export function useSkip() {
 /** Where one person stands in calibration: how many evaluated skills are reviewed, and how many were changed. */
 export function calibrationOf(snapshot: MeSnapshot) {
   if (!snapshot.published) return { evaluated: 0, reviewed: 0, changed: 0, state: 'none' as const }
-  const evaluated = snapshot.clusters.filter((c) => c.manager.status === 'calibrated')
+  // Once evaluations have closed, skills the manager never evaluated are the skip manager's to rate.
+  const closed = !snapshot.evaluation.open
+  const evaluated = snapshot.clusters.filter((c) => c.manager.status === 'calibrated' || closed)
   const reviewed = evaluated.filter((c) => c.manager.calibration).length
   const changed = evaluated.filter((c) => c.manager.calibration && !c.manager.calibration.agreed).length
   const state = evaluated.length === 0 ? ('none' as const) : reviewed === evaluated.length ? ('done' as const) : ('todo' as const)

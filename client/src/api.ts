@@ -1,6 +1,7 @@
 import type { AppState, CohortSummary } from './types'
 import type { BuPersonDetail, BuTracking } from './buhr/types'
 
+import type { SkipMember } from './skip/SkipContext'
 import type { MeSnapshot, Reflection, TaskAnswer, TeamMember, TestResult, TestStart } from './employee/types'
 
 // Demo identity header; real authentication must replace this.
@@ -54,8 +55,8 @@ export const teamApi = {
 }
 
 export const skipApi = {
-  list: () => json<{ members: Omit<TeamMember, 'remindedAt'>[] }>(request('/skip')),
-  calibrate: (empId: string, body: { agreeAll?: boolean; skills?: Record<string, { answers: Record<string, TaskAnswer>; reason: string } | null> }) =>
+  list: () => json<{ members: SkipMember[] }>(request('/skip')),
+  calibrate: (empId: string, body: { agreeAll?: boolean; skills?: Record<string, { answers: Record<string, TaskAnswer>; taskReasons: Record<string, string>; reason: string } | null> }) =>
     json<{ snapshot: MeSnapshot }>(request(`/skip/${empId}/calibration`, send('PUT', body))),
 }
 

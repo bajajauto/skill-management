@@ -297,12 +297,14 @@ export async function buildSnapshot(empId, opts = {}) {
     const managerMarks = marks
     manager.calibration = null
     let finalMarks = managerMarks
-    if (manager.status === 'calibrated' && !real && cal && cal.basedOn === calSignature(taskIds, managerMarks)) {
+    // Once evaluations have closed, a skill the manager never evaluated is rated by the skip manager instead.
+    const ratedBySkip = manager.status === 'pending' && !base.evaluation.open
+    if ((manager.status === 'calibrated' || ratedBySkip) && !real && cal && cal.basedOn === calSignature(taskIds, managerMarks)) {
       finalMarks = Object.fromEntries(taskIds.map((id) => [id, cal.answers?.[id] ?? managerMarks[id]]))
       const r = managerFromAnswers(taskIds, finalMarks, scoring.manager)
       const changedTasks = taskIds.filter((id) => finalMarks[id] !== managerMarks[id]).length
-      manager.calibration = { by: cal.byName ?? '', at: cal.at, agreed: changedTasks === 0, reason: cal.reason || null, changedTasks, managerYes: manager.yes, managerApplicable: manager.applicable }
-      Object.assign(manager, { pct: r.pct, yes: r.yes, applicable: r.applicable, calibrated: r.original, reason: changedTasks ? cal.reason || null : null })
+      manager.calibration = { by: cal.byName ?? '', at: cal.at, agreed: changedTasks === 0, reason: cal.reason || null, taskReasons: cal.taskReasons ?? {}, changedTasks, managerYes: manager.yes, managerApplicable: manager.applicable, ratedBySkip }
+      Object.assign(manager, { pct: r.pct, yes: r.yes, applicable: r.applicable, calibrated: r.original, reason: changedTasks ? cal.reason || null : null, ...(ratedBySkip ? { status: r.original ? 'calibrated' : 'pending' } : {}) })
     }
     // The employee never learns that a skip manager changed anything: they get the final answers and score as the manager's.
     const employeeView = opts.hideManager === true

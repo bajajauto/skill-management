@@ -95,7 +95,7 @@ export interface Cluster {
     status: 'pending' | 'calibrated'
     comment: string
     /** The skip-level manager's review of this score, once they have made one. */
-    calibration: { by: string; at: string; agreed: boolean; reason: string | null; changedTasks: number; managerYes: number; managerApplicable: number } | null
+    calibration: { by: string; at: string; agreed: boolean; reason: string | null; taskReasons: Record<string, string>; changedTasks: number; managerYes: number; managerApplicable: number; ratedBySkip: boolean } | null
   }
   validation: { status: 'none' | 'draft' | 'submitted'; answers: Record<string, TaskAnswer>; comment: string; at: string | null }
   /** This skill's section of the objective test. */

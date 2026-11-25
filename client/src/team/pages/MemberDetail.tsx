@@ -82,7 +82,7 @@ export function PersonView({ member, backHref, backLabel, canValidate }: { membe
                       <>
                         {' '}
                         <span title={`${c.manager.calibration.by} changed ${c.manager.calibration.changedTasks} task answer${c.manager.calibration.changedTasks === 1 ? '' : 's'} (you had ${c.manager.calibration.managerYes} of ${c.manager.calibration.managerApplicable} yes, score ${c.manager.original}; now ${c.manager.calibrated})${c.manager.calibration.reason ? `: ${c.manager.calibration.reason}` : ''}`}>
-                          <Badge tone="warn">Changed by skip manager</Badge>
+                          <Badge tone="warn">{c.manager.calibration.ratedBySkip ? 'Rated by skip manager' : 'Changed by skip manager'}</Badge>
                         </span>
                       </>
                     )}
